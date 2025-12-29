@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Camera, X, MapPin } from 'lucide-react';
+import { X, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import CameraPreview from './CameraPreview';
 
@@ -77,9 +77,9 @@ const ClockCaptureScreen = ({
       {/* Camera Preview Area */}
       <CameraPreview 
         className="flex-1" 
-        showFaceOverlay={true}
+        showCameraSwitch={true}
         showHelperText={true}
-        helperText="Align your face and tap capture"
+        helperText="Full photo will be captured automatically"
       />
 
       {/* Overlay Header */}
@@ -96,13 +96,8 @@ const ClockCaptureScreen = ({
             </div>
           </div>
           
-          {/* Interactive Camera Icon */}
-          <button 
-            className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-card/80 backdrop-blur flex items-center justify-center shadow-lg hover:bg-card transition-colors focus-ring touch-target"
-            aria-label="Camera active"
-          >
-            <Camera className="w-5 h-5 md:w-6 md:h-6 text-primary" />
-          </button>
+          {/* Camera switch is now in CameraPreview component */}
+          <div className="w-12 h-12 md:w-14 md:h-14" />
         </div>
       </div>
 

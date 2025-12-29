@@ -240,13 +240,15 @@ const EmployeeRegistrationScreen = ({
               {/* Guidance tips */}
               <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/50 text-sm text-muted-foreground">
                 <Lightbulb className="w-4 h-4 mt-0.5 shrink-0" />
-                <p>Ensure good lighting and face the camera directly. Remove glasses or hats if possible.</p>
+                <p>Ensure good lighting. Stand naturally — your full photo will be captured.</p>
               </div>
 
               <div className="aspect-[4/3] rounded-lg overflow-hidden border border-border relative">
                 <CameraPreview 
                   className="w-full h-full" 
-                  showFaceOverlay={true}
+                  showCameraSwitch={true}
+                  showHelperText={true}
+                  helperText="Full photo will be captured automatically"
                 />
                 {photoCaptured && (
                   <div className="absolute inset-0 bg-success/20 flex items-center justify-center animate-fade-in">
