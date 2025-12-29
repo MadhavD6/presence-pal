@@ -35,22 +35,26 @@ const TimeDisplay = ({ location = "Corporate Office" }: TimeDisplayProps) => {
   };
 
   return (
-    <div className="text-center space-y-2">
+    <div className="text-center space-y-3">
+      {/* Time - Primary visual element with enhanced emphasis */}
+      <div className="relative">
+        <p className="text-5xl md:text-6xl lg:text-7xl font-bold text-foreground tracking-tight animate-gentle-pulse">
+          {formatTime(currentTime)}
+        </p>
+        {/* Subtle glow effect */}
+        <div className="absolute inset-0 -z-10 blur-3xl opacity-20 bg-primary rounded-full scale-75" />
+      </div>
+
+      {/* Date */}
+      <p className="text-base md:text-lg text-muted-foreground font-medium">
+        {formatDate(currentTime)}
+      </p>
+
       {/* Location */}
-      <div className="flex items-center justify-center gap-1.5 text-muted-foreground">
+      <div className="flex items-center justify-center gap-1.5 text-muted-foreground pt-1">
         <MapPin className="w-4 h-4" />
         <span className="text-sm md:text-base font-medium">{location}</span>
       </div>
-
-      {/* Time */}
-      <p className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground tracking-tight">
-        {formatTime(currentTime)}
-      </p>
-
-      {/* Date */}
-      <p className="text-sm md:text-base text-muted-foreground">
-        {formatDate(currentTime)}
-      </p>
     </div>
   );
 };

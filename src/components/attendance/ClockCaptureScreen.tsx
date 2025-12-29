@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Camera, X, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import CameraPreview from './CameraPreview';
@@ -17,6 +17,7 @@ const ClockCaptureScreen = ({
   onClose,
 }: ClockCaptureScreenProps) => {
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [isCapturing, setIsCapturing] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -25,6 +26,29 @@ const ClockCaptureScreen = ({
 
     return () => clearInterval(timer);
   }, []);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && !isCapturing) {
+        handleCapture();
+      } else if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isCapturing, onClose]);
+
+  const handleCapture = useCallback(() => {
+    if (isCapturing) return;
+    setIsCapturing(true);
+    // Simulate capture delay
+    setTimeout(() => {
+      onCapture();
+    }, 200);
+  }, [isCapturing, onCapture]);
 
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString('en-US', {
@@ -45,16 +69,21 @@ const ClockCaptureScreen = ({
   const isClockIn = type === 'in';
   const title = isClockIn ? 'Clock In' : 'Clock Out';
   const buttonColor = isClockIn
-    ? 'bg-success hover:bg-success/90 text-success-foreground'
-    : 'bg-destructive hover:bg-destructive/90 text-destructive-foreground';
+    ? 'bg-success hover:bg-success/90 text-success-foreground shadow-success/30'
+    : 'bg-destructive hover:bg-destructive/90 text-destructive-foreground shadow-destructive/30';
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-background">
       {/* Camera Preview Area */}
-      <CameraPreview className="flex-1" />
+      <CameraPreview 
+        className="flex-1" 
+        showFaceOverlay={true}
+        showHelperText={true}
+        helperText="Align your face and tap capture"
+      />
 
       {/* Overlay Header */}
-      <div className="absolute top-0 left-0 right-0 p-4 md:p-6 bg-gradient-to-b from-background/90 to-transparent">
+      <div className="absolute top-0 left-0 right-0 p-4 md:p-6 bg-gradient-to-b from-background/90 via-background/60 to-transparent">
         <div className="flex items-start justify-between">
           <div className="space-y-1">
             <h1 className="text-2xl md:text-3xl font-bold text-foreground">{title}</h1>
@@ -67,10 +96,13 @@ const ClockCaptureScreen = ({
             </div>
           </div>
           
-          {/* Decorative Camera Icon */}
-          <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-card/80 backdrop-blur flex items-center justify-center shadow-lg">
-            <Camera className="w-5 h-5 md:w-6 md:h-6 text-muted-foreground" />
-          </div>
+          {/* Interactive Camera Icon */}
+          <button 
+            className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-card/80 backdrop-blur flex items-center justify-center shadow-lg hover:bg-card transition-colors focus-ring touch-target"
+            aria-label="Camera active"
+          >
+            <Camera className="w-5 h-5 md:w-6 md:h-6 text-primary" />
+          </button>
         </div>
       </div>
 
@@ -78,10 +110,11 @@ const ClockCaptureScreen = ({
       <div className="absolute bottom-0 left-0 right-0 p-4 md:p-6 bg-gradient-to-t from-background via-background/95 to-transparent">
         <div className="max-w-md mx-auto space-y-3">
           <Button
-            onClick={onCapture}
-            className={`w-full h-14 md:h-16 text-base md:text-lg font-semibold shadow-xl ${buttonColor}`}
+            onClick={handleCapture}
+            disabled={isCapturing}
+            className={`w-full h-16 md:h-18 text-lg md:text-xl font-bold shadow-xl hover:shadow-2xl transition-all duration-200 active:animate-button-press disabled:opacity-70 focus-ring touch-target ${buttonColor}`}
           >
-            Click to Capture
+            {isCapturing ? 'Capturing...' : 'Click to Capture'}
           </Button>
         </div>
       </div>
@@ -89,9 +122,10 @@ const ClockCaptureScreen = ({
       {/* Close Button */}
       <button
         onClick={onClose}
-        className="absolute bottom-6 right-6 md:bottom-8 md:right-8 w-12 h-12 rounded-full bg-card/80 backdrop-blur shadow-lg flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+        className="absolute bottom-6 right-6 md:bottom-8 md:right-8 w-14 h-14 rounded-full bg-card/80 backdrop-blur shadow-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-card transition-colors focus-ring touch-target"
+        aria-label="Close"
       >
-        <X className="w-5 h-5" />
+        <X className="w-6 h-6" />
       </button>
     </div>
   );

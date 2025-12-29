@@ -9,6 +9,7 @@ type Screen = 'home' | 'clockIn' | 'clockOut' | 'register';
 const Index = () => {
   const [currentScreen, setCurrentScreen] = useState<Screen>('home');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [successType, setSuccessType] = useState<'in' | 'out' | 'registration'>('in');
   const [isDark, setIsDark] = useState(false);
 
   // Apply dark mode class to document
@@ -25,14 +26,17 @@ const Index = () => {
   };
 
   const handleClockInCapture = () => {
+    setSuccessType('in');
     setShowSuccess(true);
   };
 
   const handleClockOutCapture = () => {
+    setSuccessType('out');
     setShowSuccess(true);
   };
 
   const handleRegistrationSubmit = () => {
+    setSuccessType('registration');
     setShowSuccess(true);
   };
 
@@ -50,9 +54,10 @@ const Index = () => {
       {/* Success Overlay - shown on top of everything */}
       {showSuccess && (
         <SuccessOverlay
-          message="Success!"
+          type={successType}
+          message="Attendance Marked"
           onComplete={handleSuccessComplete}
-          duration={800}
+          duration={700}
         />
       )}
 

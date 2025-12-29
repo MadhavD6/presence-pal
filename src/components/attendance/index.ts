@@ -5,3 +5,4 @@ export { default as SuccessOverlay } from './SuccessOverlay';
 export { default as CameraPreview } from './CameraPreview';
 export { default as AppHeader } from './AppHeader';
 export { default as TimeDisplay } from './TimeDisplay';
+export { default as SideDrawer } from './SideDrawer';
