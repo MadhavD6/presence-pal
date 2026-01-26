@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react';
-import { X, Home, UserPlus, HelpCircle, Sun, Moon } from 'lucide-react';
+import { X, Home, UserPlus, HelpCircle, Sun, Moon, User, ShieldCheck } from 'lucide-react';
 
 interface SideDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  onNavigate: (screen: 'home' | 'register') => void;
+  onNavigate: (screen: 'home' | 'register' | 'employee' | 'manager') => void;
   isDark: boolean;
   onToggleTheme: () => void;
 }
@@ -41,28 +41,32 @@ const SideDrawer = ({ isOpen, onClose, onNavigate, isDark, onToggleTheme }: Side
   const menuItems = [
     { icon: Home, label: 'Home', action: () => { onNavigate('home'); onClose(); } },
     { icon: UserPlus, label: 'Register', action: () => { onNavigate('register'); onClose(); } },
+    { icon: User, label: 'Employee Zone', action: () => { onNavigate('employee'); onClose(); } },
+    { icon: ShieldCheck, label: 'Manager Dashboard', action: () => { onNavigate('manager'); onClose(); } },
     { icon: HelpCircle, label: 'Help', action: () => { onClose(); } },
   ];
 
   return (
     <div className="fixed inset-0 z-50">
       {/* Backdrop */}
-      <div 
+      <div
         className="absolute inset-0 bg-foreground/40 backdrop-blur-sm animate-overlay-fade-in"
         onClick={onClose}
       />
 
       {/* Drawer */}
-      <div 
+      <div
         ref={drawerRef}
         className="absolute top-0 right-0 h-full w-72 max-w-[80vw] bg-card shadow-2xl animate-slide-in-right flex flex-col"
       >
         {/* Drawer Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">FA</span>
-            </div>
+            <img
+              src="/favicon.ico"
+              alt="Prodify"
+              className="w-8 h-8 rounded-lg"
+            />
             <span className="font-semibold text-foreground">Menu</span>
           </div>
           <button

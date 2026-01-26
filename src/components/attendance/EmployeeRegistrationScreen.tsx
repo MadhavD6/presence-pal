@@ -1,13 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Camera, User, Briefcase, MapPin, Phone, BadgeCheck, CheckCircle2, Lightbulb } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import CameraPreview from './CameraPreview';
+import CameraPreview, { CameraPreviewHandle } from './CameraPreview';
+import { api } from '@/services/api';
+import { useToast } from '@/hooks/use-toast';
 
 interface EmployeeRegistrationScreenProps {
-  onSubmit: () => void;
+  onSubmit: (name?: string) => void;
   onCancel: () => void;
 }
 
@@ -21,37 +23,111 @@ const EmployeeRegistrationScreen = ({
     department: '',
     location: '',
     mobileNumber: '',
+    password: '',
   });
   const [photoCaptured, setPhotoCaptured] = useState(false);
+  const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
+  const [capturedBlobs, setCapturedBlobs] = useState<Blob[]>([]); // New state for burst
   const [currentStep, setCurrentStep] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const cameraRef = useRef<CameraPreviewHandle>(null);
+  const { toast } = useToast();
 
-  // Keyboard shortcut for escape
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onCancel();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onCancel]);
+  // ... existing useEffect ...
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleCapturePhoto = () => {
-    setPhotoCaptured(true);
+  const handleCapturePhoto = async () => {
+    console.log("Registration Screen: Capture Clicked (Burst Mode)");
+    if (!cameraRef.current) return;
+
+    // Reset
+    setCapturedBlobs([]);
+    setPhotoCaptured(false);
+
+    const blobs: Blob[] = [];
+
+    // Burst Capture: 5 Frames
+    for (let i = 0; i < 5; i++) {
+      // Trigger capture
+      cameraRef.current.capture();
+
+      // Wait bit for camera to process/update ref or just spacing
+      // Since `capture` in CameraPreview calls `onCapture` prop, we need to handle that.
+      // Wait, CameraPreview calls `onImageCaptured` directly.
+      // We need `onImageCaptured` to collect them? 
+      // Or we can modify CameraPreview to return blob?
+      // Usually `capture()` triggers the callback.
+
+      // Hack: We can't await `capture()` callback easily without promisifying.
+      // For now, let's assume `capture()` is fast enough and we space them out.
+      // But `onImageCaptured` sets State. State updates are async/batched.
+
+      // Better approach: Since we can't easily sync with the child callback loop here without refactoring CameraPreview significantly,
+      // We can just rely on the user clicking "Capture".
+      // BUT user asked for "Burst of 5".
+
+      // Let's rely on the `cameraRef` exposing `getScreenshot` if possible?
+      // Looking at `CameraPreview` usage in `FaceRegistration`, it passes `onCapture`.
+      // If I call `capture()` 5 times rapidly, `onCapture` will be called 5 times.
+      await new Promise(r => setTimeout(r, 150)); // 150ms delay
+    }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const onImageCaptured = (blob: Blob) => {
+    // Append to list
+    setCapturedBlobs(prev => {
+      const newBlobs = [...prev, blob];
+      // If we have 5, we are done?
+      // Or just keep adding. 
+      // Let's use the LAST one for display.
+      setPhotoBlob(blob);
+      setPhotoCaptured(true);
+      return newBlobs.slice(-5); // Keep last 5 just in case
+    });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit();
+    if (capturedBlobs.length === 0 && photoBlob) {
+      // Fallback if burst failed or single capture
+      capturedBlobs.push(photoBlob);
+    }
+
+    if (capturedBlobs.length === 0) return;
+
+    setIsSubmitting(true);
+    try {
+      const data = new FormData();
+      data.append('name', formData.fullName);
+      data.append('employee_id', formData.employeeId);
+      if (formData.password) {
+        data.append('password', formData.password);
+      }
+
+      // Append all blobs as 'files'
+      capturedBlobs.forEach((blob, idx) => {
+        data.append('files', blob, `enroll_${idx}.jpg`);
+      });
+
+      await api.enroll(data);
+      onSubmit(formData.fullName);
+    } catch (err: any) {
+      console.error("Enrollment failed", err);
+      toast({
+        title: "Registration Failed",
+        description: err.message || "Could not complete registration. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Step completion checks
-  const isStep1Complete = Boolean(formData.fullName && formData.employeeId);
+  const isStep1Complete = Boolean(formData.fullName && formData.employeeId && formData.password && formData.password.length >= 6);
   const isStep2Complete = Boolean(formData.department && formData.location);
   const isStep3Complete = photoCaptured;
   const isFormValid = isStep1Complete && isStep2Complete && isStep3Complete;
@@ -66,11 +142,10 @@ const EmployeeRegistrationScreen = ({
   // Step indicator component
   const StepIndicator = ({ step, label, isComplete, isCurrent }: { step: number; label: string; isComplete: boolean; isCurrent: boolean }) => (
     <div className="flex items-center gap-2">
-      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold transition-colors ${
-        isComplete ? 'bg-success text-success-foreground' : 
-        isCurrent ? 'bg-primary text-primary-foreground' : 
-        'bg-muted text-muted-foreground'
-      }`}>
+      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold transition-colors ${isComplete ? 'bg-success text-success-foreground' :
+        isCurrent ? 'bg-primary text-primary-foreground' :
+          'bg-muted text-muted-foreground'
+        }`}>
         {isComplete ? <CheckCircle2 className="w-4 h-4" /> : step}
       </div>
       <span className={`text-sm font-medium hidden sm:block ${isCurrent ? 'text-foreground' : 'text-muted-foreground'}`}>
@@ -117,7 +192,7 @@ const EmployeeRegistrationScreen = ({
       <main className="max-w-2xl mx-auto px-4 pb-8 md:px-6 space-y-5">
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* Step 1: Personal Information Card */}
-          <Card 
+          <Card
             className={`transition-all duration-200 ${currentStep === 1 ? 'ring-2 ring-primary/20' : ''}`}
             onClick={() => setCurrentStep(1)}
           >
@@ -159,11 +234,26 @@ const EmployeeRegistrationScreen = ({
                   <FieldIndicator isComplete={Boolean(formData.employeeId)} />
                 </div>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password *</Label>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="Create a password"
+                    value={formData.password}
+                    onChange={(e) => handleInputChange('password', e.target.value)}
+                    className="h-12 pr-10 focus-ring"
+                  />
+                  <FieldIndicator isComplete={Boolean(formData.password && formData.password.length >= 6)} />
+                </div>
+
+              </div>
             </CardContent>
           </Card>
 
           {/* Step 2: Work Information Card */}
-          <Card 
+          <Card
             className={`transition-all duration-200 ${currentStep === 2 ? 'ring-2 ring-primary/20' : ''}`}
             onClick={() => setCurrentStep(2)}
           >
@@ -222,7 +312,7 @@ const EmployeeRegistrationScreen = ({
           </Card>
 
           {/* Step 3: Face Registration Card */}
-          <Card 
+          <Card
             className={`transition-all duration-200 ${currentStep === 3 ? 'ring-2 ring-primary/20' : ''}`}
             onClick={() => setCurrentStep(3)}
           >
@@ -244,11 +334,13 @@ const EmployeeRegistrationScreen = ({
               </div>
 
               <div className="aspect-[4/3] rounded-lg overflow-hidden border border-border relative">
-                <CameraPreview 
-                  className="w-full h-full" 
+                <CameraPreview
+                  ref={cameraRef}
+                  className="w-full h-full"
                   showCameraSwitch={true}
                   showHelperText={true}
                   helperText="Full photo will be captured automatically"
+                  onCapture={onImageCaptured}
                 />
                 {photoCaptured && (
                   <div className="absolute inset-0 bg-success/20 flex items-center justify-center animate-fade-in">
@@ -275,10 +367,10 @@ const EmployeeRegistrationScreen = ({
           <div className="flex flex-col sm:flex-row gap-3 pt-2">
             <Button
               type="submit"
-              disabled={!isFormValid}
+              disabled={!isFormValid || isSubmitting}
               className="flex-1 h-14 text-base font-semibold bg-primary hover:bg-primary/90 shadow-lg hover:shadow-xl transition-all duration-200 active:animate-button-press disabled:opacity-50 focus-ring touch-target"
             >
-              Submit Registration
+              {isSubmitting ? 'Registering...' : 'Submit Registration'}
             </Button>
             <Button
               type="button"

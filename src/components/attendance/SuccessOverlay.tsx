@@ -6,13 +6,15 @@ interface SuccessOverlayProps {
   message?: string;
   onComplete: () => void;
   duration?: number;
+  userName?: string;
 }
 
-const SuccessOverlay = ({ 
+const SuccessOverlay = ({
   type = 'in',
-  message = "Attendance Marked", 
-  onComplete, 
-  duration = 700 
+  message = "Attendance Marked",
+  onComplete,
+  duration = 700,
+  userName
 }: SuccessOverlayProps) => {
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -32,17 +34,22 @@ const SuccessOverlay = ({
       <div className="flex flex-col items-center gap-5 animate-success-scale-in">
         {/* Checkmark circle */}
         <div className={`w-28 h-28 md:w-36 md:h-36 rounded-full ${checkBgColor} flex items-center justify-center`}>
-          <Check 
+          <Check
             className={`w-16 h-16 md:w-20 md:h-20 ${textColor} animate-checkmark-draw`}
             strokeWidth={3}
           />
         </div>
-        
+
         {/* Success text */}
         <div className="text-center space-y-1 animate-slide-up">
           <p className={`text-2xl md:text-3xl font-bold ${textColor}`}>
             {message}
           </p>
+          {userName && (
+            <p className={`text-xl md:text-2xl font-semibold opacity-90 ${textColor}`}>
+              {userName}
+            </p>
+          )}
           <p className={`text-sm md:text-base ${textColor}/80`}>
             {type === 'in' ? 'Clock In Successful' : type === 'out' ? 'Clock Out Successful' : 'Registration Complete'}
           </p>

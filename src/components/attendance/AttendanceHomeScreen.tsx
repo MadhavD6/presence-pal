@@ -11,6 +11,12 @@ interface AttendanceHomeScreenProps {
   onClockIn: () => void;
   onClockOut: () => void;
   onRegister: () => void;
+  onEmployee: () => void;
+  onManager: () => void;
+  isOnline?: boolean;
+  queueCount?: number;
+  isSyncing?: boolean;
+  onManualSync?: () => void;
 }
 
 const AttendanceHomeScreen = ({
@@ -19,21 +25,35 @@ const AttendanceHomeScreen = ({
   onClockIn,
   onClockOut,
   onRegister,
+  onEmployee,
+  onManager,
+  isOnline = true,
+  queueCount = 0,
+  isSyncing = false,
+  onManualSync
 }: AttendanceHomeScreenProps) => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
-  const handleNavigate = (screen: 'home' | 'register') => {
+  const handleNavigate = (screen: 'home' | 'register' | 'employee' | 'manager') => {
     if (screen === 'register') {
       onRegister();
+    } else if (screen === 'employee') {
+      onEmployee();
+    } else if (screen === 'manager') {
+      onManager();
     }
   };
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <AppHeader 
-        isDark={isDark} 
-        onToggleTheme={onToggleTheme} 
+      <AppHeader
+        isDark={isDark}
+        onToggleTheme={onToggleTheme}
         onMenuClick={() => setIsDrawerOpen(true)}
+        isOnline={isOnline}
+        queueCount={queueCount}
+        isSyncing={isSyncing}
+        onManualSync={onManualSync}
       />
 
       {/* Side Drawer */}
@@ -50,14 +70,15 @@ const AttendanceHomeScreen = ({
         {/* Time Context Section - Primary visual element */}
         <TimeDisplay location="Corporate Office" />
 
-        {/* Branding Panel - Reduced emphasis */}
+        {/* Branding Panel - Prodify Logo */}
         <div className="w-full max-w-xs">
           <div className="bg-card/60 rounded-xl border border-border/50 p-4 md:p-5 flex flex-col items-center gap-2">
-            {/* Company Logo Placeholder */}
-            <div className="w-14 h-14 md:w-16 md:h-16 rounded-lg bg-muted/50 flex items-center justify-center">
-              <Building2 className="w-7 h-7 md:w-8 md:h-8 text-muted-foreground/70" />
-            </div>
-            <p className="text-xs text-muted-foreground font-medium">Your Company</p>
+            {/* Prodify Logo */}
+            <img
+              src="/prodify-logo.png"
+              alt="Prodify"
+              className="h-12 md:h-14 object-contain"
+            />
           </div>
         </div>
 

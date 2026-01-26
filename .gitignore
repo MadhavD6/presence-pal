@@ -1,3 +1,10 @@
+.venv/
+kiosk.db
+kiosk.db.bak
+thumbnails/
+node_modules/
+cloudflared.deb
+=0.22.0
 # Logs
 logs
 *.log
