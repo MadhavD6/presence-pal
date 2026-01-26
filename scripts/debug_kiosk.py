@@ -1,0 +1,61 @@
+
+import requests
+import os
+import sys
+
+# Assume running locally
+API_URL = "http://localhost:8000/api/v1/kiosk/identify"
+
+# Dummy image
+def create_dummy_image():
+    return b'\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x01\x00\x60\x00\x60\x00\x00\xFF\xDB\x00\x43\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t\x08\n\x0c\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a\x1f\x1e\x1d\x1a\x1c\x1c $.\' ",#\x1c\x1c(7),01444\x1f\'9=82<.342\xFF\xDB\x00\x43\x01\t\t\t\x0c\x0b\x0c\x18\r\r\x182!\x1c!22222222222222222222222222222222222222222222222222\xFF\xC0\x00\x11\x08\x00\x10\x00\x10\x03\x01\x22\x00\x02\x11\x01\x03\x11\x01\xFF\xC4\x00\x1f\x00\x00\x01\x05\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\xFF\xC4\x00\xB5\x10\x00\x02\x01\x03\x03\x02\x04\x03\x05\x05\x04\x04\x00\x00\x01\x7d\x01\x02\x03\x00\x04\x11\x05\x12!1A\x06\x13Qa\x07"q\x142\x81\x91\xA1\x08#B\xB1\xC1\x15R\xD1\xF0$3br\x82\t\n\x16\x17\x18\x19\x1A%&\'()*456789:CDEFGHIJSTUVWXYZcdefghijstuvwxyz\x83\x84\x85\x86\x87\x88\x89\x8A\x92\x93\x94\x95\x96\x97\x98\x99\x9A\xA2\xA3\xA4\xA5\xA6\xA7\xA8\xA9\xAA\xB2\xB3\xB4\xB5\xB6\xB7\xB8\xB9\xBA\xC2\xC3\xC4\xC5\xC6\xC7\xC8\xC9\xCA\xD2\xD3\xD4\xD5\xD6\xD7\xD8\xD9\xDA\xE1\xE2\xE3\xE4\xE5\xE6\xE7\xE8\xE9\xEA\xF1\xF2\xF3\xF4\xF5\xF6\xF7\xF8\xF9\xFA\xFF\xC4\x00\x1f\x01\x00\x03\x01\x01\x01\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\xFF\xC4\x00\xB5\x11\x00\x02\x01\x02\x04\x04\x03\x04\x07\x05\x04\x04\x00\x01\x02\x77\x00\x01\x02\x03\x11\x04\x05!1\x06\x12AQ\x07aq\x13"2\x81\x08\x14B\x91\xA1\xB1\xC1\t#3R\xF0\x15br\xD1\n\x16$4\xE1%\xF1\x17\x18\x19\x1A&\'()*56789:CDEFGHIJSTUVWXYZcdefghijstuvwxyz\x82\x83\x84\x85\x86\x87\x88\x89\x8A\x92\x93\x94\x95\x96\x97\x98\x99\x9A\xA2\xA3\xA4\xA5\xA6\xA7\xA8\xA9\xAA\xB2\xB3\xB4\xB5\xB6\xB7\xB8\xB9\xBA\xC2\xC3\xC4\xC5\xC6\xC7\xC8\xC9\xCA\xD2\xD3\xD4\xD5\xD6\xD7\xD8\xD9\xDA\xE2\xE3\xE4\xE5\xE6\xE7\xE8\xE9\xEA\xF2\xF3\xF4\xF5\xF6\xF7\xF8\xF9\xFA\xFF\xDA\x00\x0c\x03\x01\x00\x02\x11\x03\x11\x00\x3F\x00\xF9\xFE\x8A(\xA0\x0F\xFF\xD9'
+
+def debug_identify():
+    # We need a KEY.
+    # User's error suggests they are using the App/Browser.
+    # The browser has a key in localStorage. We don't know it.
+    # BUT, we can register a NEW kiosk and get a key, then try with that key.
+    
+    # 1. Register Kiosk
+    reg_url = "http://localhost:8000/api/v1/kiosk/register"
+    params = {"device_id": "DEBUG_DEVICE_002", "location": "Debug", "building": "B1"}
+    
+    try:
+        r = requests.post(reg_url, params=params)
+        if r.status_code == 400 and "already registered" in r.text:
+            print("Debug device already registered. Can't get key easily without DB access or hardcode.")
+            # If we can't get key, we can't test `identify` fully as a user would.
+            # But wait, we have DB access via python scripts!
+            # Let's peek at the DB in a separate step if this fails.
+            print("Assuming key from known pattern or skipping register.")
+            # Actually, `kiosk.py` returns the key ONLY once.
+            # So if it's reg'd, we are stuck unless we register a NEW device ID.
+            params["device_id"] = "DEBUG_DEVICE_003"
+            r = requests.post(reg_url, params=params)
+        
+        if r.status_code != 200:
+            print(f"Failed to register debug kiosk: {r.status_code} {r.text}")
+            return
+            
+        data = r.json()
+        api_key = data["api_key"]
+        print(f"Got API Key: {api_key}")
+        
+        # 2. Identify
+        files = {
+            "file": ("test.jpg", create_dummy_image(), "image/jpeg")
+        }
+        headers = {"X-Kiosk-API-Key": api_key}
+        data = {"type": "in"}
+        
+        print("Sending Identify Request...")
+        r_id = requests.post(API_URL, headers=headers, files=files, data=data)
+        
+        print(f"Response Status: {r_id.status_code}")
+        print(f"Response Body: {r_id.text}")
+        
+    except Exception as e:
+        print(f"Exception: {e}")
+
+if __name__ == "__main__":
+    debug_identify()
