@@ -1,0 +1,19 @@
+fastapi>=0.111.0
+uvicorn>=0.29.0
+pydantic>=2.7.0
+pydantic-settings>=2.2.0
+sqlmodel>=0.0.19
+python-multipart>=0.0.9
+pyjwt>=2.8.0
+passlib[bcrypt]>=1.7.4
+# AI/ML
+deepface>=0.0.91
+tf-keras>=2.16.0
+numpy>=1.26.0
+opencv-python-headless>=4.9.0.80
+scikit-learn>=1.4.0
+scikit-image>=0.22.0
+psycopg2-binary
+redis
+faiss-cpu
+
