@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import KioskSettingsDialog from './KioskSettingsDialog';
 import { Building2, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import AppHeader from './AppHeader';
@@ -11,6 +12,13 @@ interface AttendanceHomeScreenProps {
   onClockIn: () => void;
   onClockOut: () => void;
   onRegister: () => void;
+  onEmployee: () => void;
+  onManager: () => void;
+  onKioskSetup: () => void;
+  isOnline?: boolean;
+  queueCount?: number;
+  isSyncing?: boolean;
+  onManualSync?: () => void;
 }
 
 const AttendanceHomeScreen = ({
@@ -19,21 +27,91 @@ const AttendanceHomeScreen = ({
   onClockIn,
   onClockOut,
   onRegister,
+  onEmployee,
+  onManager,
+  onKioskSetup,
+  isOnline = true,
+  queueCount = 0,
+  isSyncing = false,
+  onManualSync
 }: AttendanceHomeScreenProps) => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [kiosk, setKiosk] = useState<{ id: number, device_id: string, location: string, building: string } | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  const handleNavigate = (screen: 'home' | 'register') => {
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchKiosk = async () => {
+      try {
+        const { api } = await import('@/services/api');
+        const res = await api.getKioskDetails();
+        setKiosk(res.kiosk);
+        setError(null);
+      } catch (e: any) {
+        console.error("Failed to fetch kiosk details", e);
+
+        // Auto-Register on Authorization failure or 401
+        if (e.message.includes('401') || e.message.includes('Unauthorized') || e.message.includes('Failed to fetch kiosk')) {
+          console.log("Authorization failed. Attempting Auto-Registration...");
+          try {
+            // Try to Auto-Register
+            const { api } = await import('@/services/api');
+            const reg = await api.autoRegisterKiosk();
+            console.log("Auto-Registered as:", reg.device_id);
+
+            // Save Key
+            localStorage.setItem('kiosk_api_key', reg.api_key);
+
+            // Retry Fetch
+            const retryRes = await api.getKioskDetails();
+            setKiosk(retryRes.kiosk);
+            setError(null);
+
+          } catch (regErr) {
+            console.error("Auto-Registration failed", regErr);
+            setError("Kiosk Authorization Failed. Manual Setup Required.");
+          }
+        } else {
+          setError("Connection Error. Unable to verify status.");
+        }
+      }
+    };
+    fetchKiosk();
+  }, []);
+
+  const handleNavigate = (screen: 'home' | 'register' | 'employee' | 'manager' | 'kioskSetup') => {
     if (screen === 'register') {
       onRegister();
+    } else if (screen === 'employee') {
+      onEmployee();
+    } else if (screen === 'manager') {
+      onManager();
+    } else if (screen === 'kioskSetup') {
+      onKioskSetup();
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      <AppHeader 
-        isDark={isDark} 
-        onToggleTheme={onToggleTheme} 
+    <div className="min-h-screen flex flex-col bg-background relative">
+      {/* Kiosk Settings Dialog */}
+      {kiosk && (
+        <KioskSettingsDialog
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          kiosk={kiosk}
+          onUpdate={setKiosk}
+        />
+      )}
+
+      <AppHeader
+        isDark={isDark}
+        onToggleTheme={onToggleTheme}
         onMenuClick={() => setIsDrawerOpen(true)}
+        isOnline={isOnline}
+        queueCount={queueCount}
+        isSyncing={isSyncing}
+        onManualSync={onManualSync}
       />
 
       {/* Side Drawer */}
@@ -48,16 +126,38 @@ const AttendanceHomeScreen = ({
       {/* Main content - centered */}
       <main className="flex-1 flex flex-col items-center justify-center px-4 pb-8 gap-6 md:gap-8">
         {/* Time Context Section - Primary visual element */}
-        <TimeDisplay location="Corporate Office" />
+        <TimeDisplay location={kiosk ? kiosk.location : "Loading..."} />
 
-        {/* Branding Panel - Reduced emphasis */}
+        {/* Branding Panel - Prodify Logo */}
         <div className="w-full max-w-xs">
           <div className="bg-card/60 rounded-xl border border-border/50 p-4 md:p-5 flex flex-col items-center gap-2">
-            {/* Company Logo Placeholder */}
-            <div className="w-14 h-14 md:w-16 md:h-16 rounded-lg bg-muted/50 flex items-center justify-center">
-              <Building2 className="w-7 h-7 md:w-8 md:h-8 text-muted-foreground/70" />
-            </div>
-            <p className="text-xs text-muted-foreground font-medium">Your Company</p>
+            {/* Prodify Logo */}
+            <img
+              src="/prodify-logo.png"
+              alt="Prodify"
+              className="h-12 md:h-14 object-contain"
+            />
+            {kiosk && (
+              <div className="text-xs text-muted-foreground flex items-center gap-1.5 mt-1 cursor-pointer hover:text-primary transition-colors" onClick={() => setIsSettingsOpen(true)}>
+                <div className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-green-500' : 'bg-yellow-500'}`} />
+                <span className="font-medium underline decoration-dashed underline-offset-2">{kiosk.device_id}</span>
+              </div>
+            )}
+            {!kiosk && !error && (
+              <div className="text-xs text-muted-foreground mt-1 animate-pulse">Connecting to Kiosk...</div>
+            )}
+            {error && (
+              <div className="flex flex-col items-center gap-2 mt-2">
+                <div className="px-3 py-1 rounded bg-destructive/10 text-destructive text-xs font-bold border border-destructive/20 text-center">
+                  {error}
+                </div>
+                {(error.includes("Authorization") || error.includes("Activation")) && (
+                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleNavigate('kioskSetup')}>
+                    Setup Kiosk
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -87,9 +187,15 @@ const AttendanceHomeScreen = ({
             New Employee? Register
           </span>
         </button>
-      </main>
-    </div>
+      </main >
+
+      {/* Footer / Version info */}
+      < div className="absolute bottom-2 right-2 text-[10px] text-muted-foreground/30 select-none" >
+        v1.2.0 • {kiosk?.id ? `KID:${kiosk.id}` : 'Unregistered'}
+      </div >
+    </div >
   );
 };
+
 
 export default AttendanceHomeScreen;

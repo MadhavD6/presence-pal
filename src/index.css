@@ -118,15 +118,18 @@
 }
 
 @layer utilities {
+
   /* Success overlay animation */
   @keyframes success-scale-in {
     0% {
       opacity: 0;
       transform: scale(0.8);
     }
+
     50% {
       transform: scale(1.05);
     }
+
     100% {
       opacity: 1;
       transform: scale(1);
@@ -137,6 +140,7 @@
     0% {
       stroke-dashoffset: 100;
     }
+
     100% {
       stroke-dashoffset: 0;
     }
@@ -146,6 +150,7 @@
     0% {
       opacity: 0;
     }
+
     100% {
       opacity: 1;
     }
@@ -155,6 +160,7 @@
     0% {
       opacity: 1;
     }
+
     100% {
       opacity: 0;
     }
@@ -165,6 +171,7 @@
       opacity: 0;
       transform: translateY(20px);
     }
+
     100% {
       opacity: 1;
       transform: translateY(0);
@@ -173,10 +180,13 @@
 
   /* Gentle pulse animation for idle state */
   @keyframes gentle-pulse {
-    0%, 100% {
+
+    0%,
+    100% {
       opacity: 1;
       transform: scale(1);
     }
+
     50% {
       opacity: 0.85;
       transform: scale(1.02);
@@ -188,9 +198,11 @@
     0% {
       transform: scale(1);
     }
+
     50% {
       transform: scale(0.97);
     }
+
     100% {
       transform: scale(1);
     }
@@ -201,6 +213,7 @@
     0% {
       transform: translateX(100%);
     }
+
     100% {
       transform: translateX(0);
     }
@@ -210,6 +223,7 @@
     0% {
       transform: translateX(0);
     }
+
     100% {
       transform: translateX(100%);
     }
@@ -220,6 +234,7 @@
     0% {
       opacity: 0;
     }
+
     100% {
       opacity: 1;
     }

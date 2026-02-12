@@ -1,16 +1,49 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '@/context/AuthContext';
 import AttendanceHomeScreen from '@/components/attendance/AttendanceHomeScreen';
 import ClockCaptureScreen from '@/components/attendance/ClockCaptureScreen';
 import EmployeeRegistrationScreen from '@/components/attendance/EmployeeRegistrationScreen';
+import EmployeeDashboard from '@/components/employee/EmployeeDashboard';
+import EmployeeLogin from '@/pages/EmployeeLogin';
+import ManagerDashboard from '@/components/manager/ManagerDashboard';
+import KioskSetupPage from '@/pages/KioskSetupPage';
 import SuccessOverlay from '@/components/attendance/SuccessOverlay';
+import { api } from '@/services/api';
+import { toast } from 'sonner';
 
-type Screen = 'home' | 'clockIn' | 'clockOut' | 'register';
+type Screen = 'home' | 'clockIn' | 'clockOut' | 'register' | 'employee' | 'manager' | 'kioskSetup';
 
 const Index = () => {
-  const [currentScreen, setCurrentScreen] = useState<Screen>('home');
+  // Initialize from localStorage or default to 'home'
+  const [currentScreen, setCurrentScreenState] = useState<Screen>(() => {
+    return (localStorage.getItem('last_screen') as Screen) || 'home';
+  });
+
+  // Wrapper to update state and localStorage
+  const setCurrentScreen = (screen: Screen) => {
+    localStorage.setItem('last_screen', screen);
+    setCurrentScreenState(screen);
+  };
+  const { isAuthenticated } = useAuth();
   const [showSuccess, setShowSuccess] = useState(false);
   const [successType, setSuccessType] = useState<'in' | 'out' | 'registration'>('in');
+  const [successName, setSuccessName] = useState<string | undefined>(undefined);
   const [isDark, setIsDark] = useState(false);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [queueCount, setQueueCount] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  // Check if Kiosk is set up on mount. If not, we might want to stay on home 
+  // but show a "Setup Needed" state or let the user click setup.
+  // For now, we remove the auto-registration as requested.
+  useEffect(() => {
+    const key = localStorage.getItem('kiosk_api_key');
+    if (!key && currentScreen === 'home') {
+      // Optional: Redirect to setup if not configured
+      // setCurrentScreen('kioskSetup');
+      console.log("Kiosk not configured. Please navigate to /setup or click Setup Kiosk.");
+    }
+  }, [currentScreen]);
 
   // Apply dark mode class to document
   useEffect(() => {
@@ -25,27 +58,87 @@ const Index = () => {
     setIsDark(prev => !prev);
   };
 
-  const handleClockInCapture = () => {
+  useEffect(() => {
+    const handleStatusChange = () => {
+      setIsOnline(navigator.onLine);
+    };
+
+    window.addEventListener('online', handleStatusChange);
+    window.addEventListener('offline', handleStatusChange);
+
+    return () => {
+      window.removeEventListener('online', handleStatusChange);
+      window.removeEventListener('offline', handleStatusChange);
+    };
+  }, []);
+
+  // Poll offline queue count
+  useEffect(() => {
+    const checkQueue = () => {
+      import('@/services/offlineStorage').then(({ offlineStorage }) => {
+        const queue = offlineStorage.getQueue();
+        setQueueCount(queue.length);
+      });
+    };
+
+    checkQueue();
+    const interval = setInterval(checkQueue, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleManualSync = async () => {
+    if (!isOnline) return;
+    setIsSyncing(true);
+    try {
+      const { offlineStorage } = await import('@/services/offlineStorage');
+      const queue = offlineStorage.getQueue();
+      if (queue.length === 0) {
+        toast.info("No items to sync");
+        return;
+      }
+
+      const { api } = await import('@/services/api');
+      await api.syncPunches(queue);
+      offlineStorage.clearQueue();
+      setQueueCount(0);
+      toast.success("Sync Complete", { description: `${queue.length} records synced` });
+    } catch (error) {
+      console.error("Sync failed", error);
+      toast.error("Sync Failed", { description: "Could not upload offline records" });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleClockInCapture = (name?: string) => {
     setSuccessType('in');
+    setSuccessName(name);
     setShowSuccess(true);
   };
 
-  const handleClockOutCapture = () => {
+  const handleClockOutCapture = (name?: string) => {
     setSuccessType('out');
+    setSuccessName(name);
     setShowSuccess(true);
   };
 
-  const handleRegistrationSubmit = () => {
+  const handleRegistrationSubmit = (name?: string) => {
     setSuccessType('registration');
+    setSuccessName(name);
     setShowSuccess(true);
   };
 
   const handleSuccessComplete = () => {
     setShowSuccess(false);
+    setSuccessName(undefined);
     setCurrentScreen('home');
   };
 
   const handleClose = () => {
+    setCurrentScreen('home');
+  };
+
+  const handleKioskRegistered = () => {
     setCurrentScreen('home');
   };
 
@@ -56,12 +149,17 @@ const Index = () => {
         <SuccessOverlay
           type={successType}
           message="Attendance Marked"
+          userName={successName}
           onComplete={handleSuccessComplete}
-          duration={700}
+          duration={2000} // Increased duration to read message
         />
       )}
 
       {/* Screen Router */}
+      {currentScreen === 'kioskSetup' && (
+        <KioskSetupPage onCancel={() => setCurrentScreen('home')} />
+      )}
+
       {currentScreen === 'home' && (
         <AttendanceHomeScreen
           isDark={isDark}
@@ -69,6 +167,13 @@ const Index = () => {
           onClockIn={() => setCurrentScreen('clockIn')}
           onClockOut={() => setCurrentScreen('clockOut')}
           onRegister={() => setCurrentScreen('register')}
+          onEmployee={() => setCurrentScreen('employee')}
+          onManager={() => setCurrentScreen('manager')}
+          onKioskSetup={() => setCurrentScreen('kioskSetup')}
+          isOnline={isOnline}
+          queueCount={queueCount}
+          isSyncing={isSyncing}
+          onManualSync={handleManualSync}
         />
       )}
 
@@ -92,6 +197,25 @@ const Index = () => {
         <EmployeeRegistrationScreen
           onSubmit={handleRegistrationSubmit}
           onCancel={handleClose}
+        />
+      )}
+
+      {currentScreen === 'employee' && (
+        isAuthenticated ? (
+          <EmployeeDashboard
+            onBack={handleClose}
+          />
+        ) : (
+          <EmployeeLogin
+            onBack={handleClose}
+            onLoginSuccess={() => { }} // AuthContext handles state, this just confirms
+          />
+        )
+      )}
+
+      {currentScreen === 'manager' && (
+        <ManagerDashboard
+          onBack={handleClose}
         />
       )}
     </>
