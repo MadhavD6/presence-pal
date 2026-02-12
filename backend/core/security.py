@@ -11,8 +11,16 @@ from backend.models.kiosk import Kiosk
 from backend.models.user import User
 from passlib.context import CryptContext
 
-# Configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "dev_secret_key_change_me_in_prod")
+# Configuration with validation
+SECRET_KEY = os.getenv("SECRET_KEY", "")
+INSECURE_KEYS = ["dev_secret_key_change_me_in_prod", "strictly-for-dev-change-in-prod-999", ""]
+
+if SECRET_KEY in INSECURE_KEYS:
+    raise ValueError(
+        "CRITICAL SECURITY ERROR: Production SECRET_KEY not set or using default value. "
+        "Set a strong SECRET_KEY environment variable immediately!"
+    )
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
@@ -95,9 +103,12 @@ def verify_api_key(plain_key: str, hashed_key: str) -> bool:
     # Let's use a multi-scheme context.
     return pwd_context.verify(plain_key, hashed_key)
 
+from sqlalchemy.ext.asyncio import AsyncSession
+from backend.core.database import get_async_session
+
 async def get_current_kiosk(
     api_key: str = Security(api_key_header),
-    session: Session = Depends(get_session)
+    session: AsyncSession = Depends(get_async_session)
 ) -> Kiosk:
     """
     Validates API Key format: kiosk:{device_id}:{secret}
@@ -123,7 +134,8 @@ async def get_current_kiosk(
             detail="Invalid API Key Format. Expected 'kiosk:{device_id}:{secret}'"
         )
 
-    kiosk = session.exec(select(Kiosk).where(Kiosk.device_id == device_id)).first()
+    result = await session.exec(select(Kiosk).where(Kiosk.device_id == device_id))
+    kiosk = result.first()
     
     if not kiosk:
         raise HTTPException(
@@ -144,3 +156,28 @@ async def get_current_kiosk(
         )
         
     return kiosk
+
+# Optional Bearer Token + API Key Auth (for audit trail)
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/employee/login", auto_error=False)
+
+async def get_optional_current_user(
+    token: Optional[str] = Depends(oauth2_scheme_optional),
+    session: Session = Depends(get_session)
+) -> Optional[User]:
+    """
+    Tries to extract current user from Bearer token.
+    Returns None if no token or invalid token.
+    Used for audit trail - capture 'who' performed an action.
+    """
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id_str: str = payload.get("sub")
+        if user_id_str is None:
+            return None
+        user_id = int(user_id_str)
+        user = session.get(User, user_id)
+        return user
+    except (jwt.PyJWTError, ValueError):
+        return None

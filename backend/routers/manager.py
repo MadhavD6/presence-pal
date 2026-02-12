@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select, func, col, and_
 from pydantic import BaseModel
 from backend.core.database import get_session
-from backend.core.security import get_current_manager_user, get_current_kiosk
+from backend.core.security import get_current_manager_user, get_current_kiosk, get_optional_current_user
 from backend.models.user import User
 from backend.models.audit import AuditLog
 from backend.models.leave import Leave
@@ -15,13 +15,55 @@ from backend.models.kiosk import Kiosk
 router = APIRouter()
 
 @router.get("/manager/kiosks")
-async def get_kiosks(
+def get_kiosks(
     session: Session = Depends(get_session),
     _auth: Any = Depends(get_current_kiosk)
 ):
     kiosks = session.exec(select(Kiosk)).all()
     # Mask secrets? Maybe no need to send hash.
     return kiosks
+
+class KioskUpdate(BaseModel):
+    device_id: Optional[str] = None
+    location: Optional[str] = None
+    building: Optional[str] = None
+    site_id: Optional[int] = None
+
+@router.put("/manager/kiosks/{kiosk_id}")
+def update_kiosk(
+    kiosk_id: int,
+    data: KioskUpdate,
+    session: Session = Depends(get_session),
+    _auth: Any = Depends(get_current_kiosk) # Any authenticated kiosk can update
+):
+    kiosk = session.get(Kiosk, kiosk_id)
+    if not kiosk:
+        raise HTTPException(status_code=404, detail="Kiosk not found")
+        
+    if data.device_id:
+        # Check uniqueness if changing ID
+        if data.device_id != kiosk.device_id:
+            existing = session.exec(select(Kiosk).where(Kiosk.device_id == data.device_id)).first()
+            if existing:
+                 raise HTTPException(status_code=400, detail="Device ID already exists")
+            kiosk.device_id = data.device_id
+            
+    if data.location:
+        kiosk.location = data.location
+    if data.building:
+        kiosk.building = data.building
+    if data.site_id is not None:
+        # Verify site exists
+        site = session.get(Site, data.site_id)
+        if not site:
+             raise HTTPException(status_code=404, detail="Site not found")
+        kiosk.site_id = data.site_id
+        
+    session.add(kiosk)
+    session.commit()
+    session.refresh(kiosk)
+    return {"status": "success", "kiosk": kiosk}
+
 
 from backend.models.site import Site
 
@@ -30,7 +72,7 @@ class AssignSiteRequest(BaseModel):
     site_id: Optional[int]
 
 @router.get("/manager/employees")
-async def get_employees(
+def get_employees(
     session: Session = Depends(get_session),
     _auth: Any = Depends(get_current_kiosk)
 ):
@@ -52,14 +94,14 @@ async def get_employees(
     return data
 
 @router.get("/manager/sites")
-async def get_sites(
+def get_sites(
     session: Session = Depends(get_session),
     _auth: Any = Depends(get_current_kiosk)
 ):
     return session.exec(select(Site).where(Site.is_active == True)).all()
 
 @router.post("/manager/employees/assign-site")
-async def assign_site(
+def assign_site(
     data: AssignSiteRequest, 
     session: Session = Depends(get_session),
     _auth: Any = Depends(get_current_kiosk)
@@ -89,10 +131,10 @@ class EmployeeCreate(BaseModel):
     role: str = "user"
     site_id: Optional[int] = None
     email: Optional[str] = None
-    password: Optional[str] = "password" # Default password
+    password: Optional[str] = None  # No default password - must be set explicitly or left empty
 
 @router.post("/manager/employees")
-async def create_employee(
+def create_employee(
     data: EmployeeCreate,
     session: Session = Depends(get_session),
     _auth: Any = Depends(get_current_kiosk)
@@ -115,7 +157,7 @@ async def create_employee(
     return {"status": "success", "id": new_user.id}
 
 @router.put("/manager/employees/{user_id}")
-async def update_employee(
+def update_employee(
     user_id: int,
     data: EmployeeCreate, # Reusing schema for simplicity
     session: Session = Depends(get_session),
@@ -145,7 +187,7 @@ async def update_employee(
     return {"status": "success"}
 
 @router.get("/manager/stats")
-async def get_manager_stats(
+def get_manager_stats(
     date_str: str, 
     session: Session = Depends(get_session),
     _auth: Any = Depends(get_current_kiosk)
@@ -227,7 +269,7 @@ async def get_manager_stats(
     }
 
 @router.get("/manager/timesheet")
-async def get_timesheet(
+def get_timesheet(
     start_date_str: str,
     end_date_str: str,
     session: Session = Depends(get_session),
@@ -304,6 +346,16 @@ async def get_timesheet(
     # Pre-fetch all shifts
     all_shifts = {s.id: s for s in session.exec(select(Shift)).all()}
     default_shift = Shift(name="General Shift", start_time=time(9,0), end_time=time(18,0), grace_period_mins=15)
+    
+    # Pre-fetch Holidays in range
+    from backend.models.holiday import Holiday
+    holidays_in_range = session.exec(
+        select(Holiday)
+        .where(Holiday.date >= start_date)
+        .where(Holiday.date <= end_date)
+    ).all()
+    holiday_set = {h.date for h in holidays_in_range}
+    holiday_name_map = {h.date: h.name for h in holidays_in_range}
 
     for user in users:
         days_status = []
@@ -324,16 +376,11 @@ async def get_timesheet(
             
             # Find applicable shift for this day
             applicable_shift = current_cache_shift # Fallback
+            applicable_employee_shift = None # EmployeeShift record
             for rec in history:
                 if rec.start_date <= curr_d and (rec.end_date is None or rec.end_date >= curr_d):
-                    # Found a historical record covering this date
                     applicable_shift = all_shifts.get(rec.shift_id, default_shift)
-                    # Keep looking? No, records might overlap? Assuming valid robust data, take latest valid or first valid?
-                    # If multiple, take the one with latest start_date?
-                    # Since we ordered simply by start_date, the later ones come later.
-                    # But actually if we order by start_date, we just iterate.
-                    # Correct logic: Pick the record where date IN [start, end].
-                    # If multiple match (should not happen), pick one.
+                    applicable_employee_shift = rec
                     break 
             
             # Use applicable_shift for this specific day
@@ -347,12 +394,24 @@ async def get_timesheet(
             current_shift_code = shift_code
             current_shift_tooltip = shift_tooltip
             
-            # Check weekday for WO (Sunday=6)
-            curr_d = datetime.strptime(d_str, "%Y-%m-%d").date()
-            if curr_d.weekday() == 6: # Sunday
+            # Check weekday for WO (Dynamic from EmployeeShift or fallback to Sunday)
+            weekly_off_days = [6] # Default Sunday
+            if applicable_employee_shift and applicable_employee_shift.weekly_offs:
+                try:
+                    weekly_off_days = [int(x.strip()) for x in applicable_employee_shift.weekly_offs.split(",")]
+                except:
+                    pass
+                    
+            if curr_d.weekday() in weekly_off_days:
                 status = "WO"
                 current_shift_code = "WO"
                 current_shift_tooltip = "Weekly Off"
+            
+            # Check for Holiday
+            if curr_d in holiday_set:
+                status = "HD"
+                current_shift_code = "HD"
+                current_shift_tooltip = f"Holiday: {holiday_name_map.get(curr_d, '')}"
             
             # Check Logs
             if day_logs:
@@ -382,7 +441,7 @@ async def get_timesheet(
         timesheet_data.append({
             "name": user.name,
             "id": user.employee_id,
-            "dept": "Engineering", # Placeholder until Dept added to User model
+            "dept": user.department or "General",
             "avatar": "".join([n[0] for n in user.name.split(" ")[:2]]),
             "stats": { "payable": worked_str, "worked": worked_str }, # Payable logic can be complex
             "days": days_status
@@ -391,7 +450,7 @@ async def get_timesheet(
     return timesheet_data
 
 @router.get("/manager/daily-log")
-async def get_daily_log(
+def get_daily_log(
     date_str: str,
     session: Session = Depends(get_session),
     _auth: Any = Depends(get_current_kiosk)
@@ -459,7 +518,7 @@ async def get_daily_log(
                 status = "Out"
                 
             if first_in:
-                end_time = last_event.timestamp if last_event.event_type == 'out' else datetime.utcnow()
+                end_time = last_event.timestamp if last_event.event_type == 'out' else datetime.now()
                 if end_time > first_in.timestamp:
                     diff = end_time - first_in.timestamp
                     hours = diff.seconds // 3600
@@ -486,7 +545,7 @@ from fastapi import HTTPException
 # --- Approval Endpoints ---
 
 @router.get("/manager/approvals/leaves")
-async def get_pending_leaves(
+def get_pending_leaves(
     session: Session = Depends(get_session),
     _auth: Any = Depends(get_current_kiosk)
 ):
@@ -509,7 +568,7 @@ async def get_pending_leaves(
     ]
 
 @router.post("/manager/approvals/leaves/{leave_id}")
-async def approve_leave(
+def approve_leave(
     leave_id: int, 
     action: str, # "approve" or "reject"
     session: Session = Depends(get_session),
@@ -531,7 +590,7 @@ async def approve_leave(
     return {"status": "success"}
 
 @router.get("/manager/approvals/corrections")
-async def get_pending_corrections(
+def get_pending_corrections(
     session: Session = Depends(get_session),
     _auth: Any = Depends(get_current_kiosk)
 ):
@@ -554,19 +613,24 @@ async def get_pending_corrections(
     ]
 
 @router.post("/manager/approvals/corrections/{correction_id}")
-async def approve_correction(
+def approve_correction(
     correction_id: int,
     action: str, # "approve" or "reject"
     session: Session = Depends(get_session),
-    _auth: Any = Depends(get_current_kiosk)
+    _auth: Any = Depends(get_current_kiosk),
+    current_user: Optional[User] = Depends(get_optional_current_user)
 ):
     correction = session.get(AttendanceCorrection, correction_id)
     if not correction:
         raise HTTPException(status_code=404, detail="Correction not found")
         
+    # Set resolver for audit trail (if user is logged in via bearer token)
+    if current_user:
+        correction.resolver_id = current_user.id
+        
     if action == "approve":
         correction.status = "Approved"
-        correction.resolved_at = datetime.utcnow()
+        correction.resolved_at = datetime.now()
         
         # Logic to update AuditLog!
         # This is CRITICAL. If approved, we must insert/update logs to reflect new time.
@@ -585,29 +649,67 @@ async def approve_correction(
         # If user wants to CHANGE time to be shorter (e.g. strict shift), simply adding logs won't overwrite the existing wider range.
         # However, for MVP: Let's assume corrections are mostly for "Missing" punches.
         
-        if correction.corrected_in:
+        # Conflict Handling: Find and mark OLD logs for this day as overridden
+        start_of_day = datetime.combine(correction.original_date, time.min)
+        end_of_day = datetime.combine(correction.original_date, time.max)
+        
+        # We need to query logs for this user on this day
+        # Filter for existing valid punches (in/out)
+        existing_logs = session.exec(
+            select(AuditLog)
+            .where(AuditLog.user_id == correction.user_id)
+            .where(AuditLog.timestamp >= start_of_day)
+            .where(AuditLog.timestamp <= end_of_day)
+            .where(AuditLog.match_type != "overridden") # Avoid double processing
+        ).all()
+        
+        for log in existing_logs:
+            # Mark them as overridden so strict calculation ignores them
+            # Ideally we preserve them for audit but exclude from stats
+            # Update metadata to track who/why (BEFORE changing match_type)
+            if not log.metadata_info: log.metadata_info = {}
+            log.metadata_info["original_match_type"] = log.match_type # Save before overwrite
+            log.metadata_info["overridden_by_correction"] = correction.id
+            log.match_type = "overridden"
+            session.add(log)
+            
+        # Now insert the NEW corrected punches
+        corrected_in_ts = correction.corrected_in
+        corrected_out_ts = correction.corrected_out
+        
+        # Handle Cross-Day (Night Shift) Corrections:
+        # If corrected_out time is BEFORE corrected_in time (e.g., In=22:00, Out=06:00),
+        # it means out is on the NEXT day.
+        if corrected_in_ts and corrected_out_ts:
+            if corrected_out_ts.time() < corrected_in_ts.time():
+                # Out is on the next calendar day
+                corrected_out_ts = corrected_out_ts + timedelta(days=1)
+        
+        if corrected_in_ts:
             log_in = AuditLog(
                 user_id=correction.user_id,
-                timestamp=correction.corrected_in,
+                timestamp=corrected_in_ts,
                 event_type="in",
                 confidence=1.0,
-                metadata_info={"verification_method": "manual_correction"}
+                match_type="manual_correction", 
+                metadata_info={"verification_method": "manual_correction", "correction_id": correction.id}
             )
             session.add(log_in)
             
-        if correction.corrected_out:
+        if corrected_out_ts:
             log_out = AuditLog(
                 user_id=correction.user_id,
-                timestamp=correction.corrected_out,
+                timestamp=corrected_out_ts,
                 event_type="out",
                 confidence=1.0,
-                metadata_info={"verification_method": "manual_correction"}
+                match_type="manual_correction",
+                metadata_info={"verification_method": "manual_correction", "correction_id": correction.id}
             )
             session.add(log_out)
             
     elif action == "reject":
         correction.status = "Rejected"
-        correction.resolved_at = datetime.utcnow()
+        correction.resolved_at = datetime.now()
     else:
          raise HTTPException(status_code=400, detail="Invalid action")
          
@@ -616,8 +718,7 @@ async def approve_correction(
     return {"status": "success"}
 
 @router.get("/manager/approvals/history")
-@router.get("/manager/approvals/history")
-async def get_approval_history(
+def get_approval_history(
     session: Session = Depends(get_session),
     _auth: Any = Depends(get_current_kiosk)
 ):
@@ -685,9 +786,15 @@ class DetailedReportRow(BaseModel):
     payable_day_fraction: float
     source: str = "Face"
     remarks: str = "-"
+    # Enhanced Fields
+    warnings: str = "-"
+    avg_confidence: float = 0.0
+    correction_note: str = "-"
+    is_manual: bool = False
+    pairing_status: str = "Ok"
 
 @router.get("/manager/reports/detailed", response_model=List[DetailedReportRow])
-async def get_detailed_report(
+def get_detailed_report(
     start_date_str: str,
     end_date_str: str,
     session: Session = Depends(get_session),
@@ -726,66 +833,176 @@ def _get_detailed_report_data(session: Session, start_date: date, end_date: date
                 leave_map[(leave.user_id, curr)] = leave
             curr += timedelta(days=1)
             
-    # Fetch logs
+    # Fetch logs (Extend by 1 day to fetch overnight OUT punches)
     start_dt = datetime.combine(start_date, time.min)
-    end_dt = datetime.combine(end_date, time.max)
+    end_dt = datetime.combine(end_date + timedelta(days=1), time.max)
     logs = session.exec(
         select(AuditLog).where(
             and_(
                 AuditLog.timestamp >= start_dt,
                 AuditLog.timestamp <= end_dt
             )
-        )
+        ).order_by(AuditLog.timestamp) # Ensure chronological order
     ).all()
     
-    logs_map = {}
+    # Track consumed logs to prevent double-counting across days
+    processed_log_ids = set()
+    
+    # Organize logs by user for easier access
+    usage_map = {} # user_id -> list of logs
     for log in logs:
-        d = log.timestamp.date()
-        key = (log.user_id, d)
-        if key not in logs_map:
-            logs_map[key] = []
-        logs_map[key].append(log)
+        if log.user_id not in usage_map:
+            usage_map[log.user_id] = []
+        usage_map[log.user_id].append(log)
         
     report = []
     
     curr = start_date
     while curr <= end_date:
         for user in users:
-            # 1. Determine Shift
-            from backend.models.shift import Shift
-            user_shift = None
-            if user.shift_id:
-                user_shift = session.get(Shift, user.shift_id)
-            if not user_shift:
-                user_shift = Shift(name="General Shift", start_time=time(9,0), end_time=time(18,0), grace_period_mins=15)
-                
-            # 2. Get Logs & Stats
-            day_logs = logs_map.get((user.id, curr), [])
-            from backend.services.attendance import calculate_daily_stats
-            stats = calculate_daily_stats(day_logs, shift=user_shift)
+            # 1. Determine Shift & Weekly Off
+            from backend.services.attendance import calculate_daily_stats, get_shift_for_date
+            user_shift, is_weekly_off = get_shift_for_date(session, user.id, curr)
             
-            # 3. Determine Final Status (Check Leaves/Holidays)
+            # 2. Identify candidate logs for this "Shift Day"
+            # Default Window: 00:00 to 23:59:59 of current day
+            w_start = datetime.combine(curr, time.min)
+            w_end = datetime.combine(curr, time.max)
+            
+            # Smart Window for Night Shifts
+            if user_shift and user_shift.crosses_midnight:
+                # Extend window to next day noon (covering the overnight shift)
+                # But start time should be close to shift start (e.g. shift start - 4h)
+                # For simplicity/robustness: Just look at [curr 00:00 -> curr+1 12:00]
+                # And relies on 'processed_log_ids' to ignore logs claimed by previous day.
+                w_end = datetime.combine(curr + timedelta(days=1), time(12, 0)) 
+            
+            # Fetch all available logs for this user in this window
+            candidates = []
+            if user.id in usage_map:
+                for log in usage_map[user.id]:
+                    if log.id in processed_log_ids:
+                        continue # Skip already consumed punch (e.g. OUT from yesterday)
+                    if w_start <= log.timestamp <= w_end:
+                         candidates.append(log)
+            
+            # 3. Calculate Stats
+            stats = calculate_daily_stats(candidates, user_shift)
+            
+            # 4. Mark "Used" logs as processed
+            # Which logs did calculate_daily_stats ACTUALLY use?
+            # It uses ALL of them to determine First-In/Last-Out.
+            # But wait, if we passed [Jan 1 20:00, Jan 2 05:00, Jan 2 09:00]
+            # It might use Jan 2 09:00 as "Last Out" for Jan 1 shift? YES. Risk.
+            # FIX: verification logic.
+            # If shift is 20:00-05:00.
+            # We should filtering candidates: ONLY logs that "belong" to this shift.
+            # Heuristic: A log belongs to this shift if it is within (Start - 4h) and (End + 6h).
+            
+            refined_candidates = []
+            if user_shift:
+                # Construct absolute shift times
+                s_start_dt = datetime.combine(curr, user_shift.start_time)
+                s_end_dt = datetime.combine(curr, user_shift.end_time)
+                if user_shift.crosses_midnight:
+                    s_end_dt += timedelta(days=1)
+                
+                # Tolerances: 
+                # Earliest IN: 4 hours before start?
+                # Latest OUT: 6 hours after end? (or until next shift start)
+                # Let's say: [Start - 4h, End + 8h]
+                lower_bound = s_start_dt - timedelta(hours=4)
+                upper_bound = s_end_dt + timedelta(hours=8)
+                
+                for cand in candidates:
+                    if lower_bound <= cand.timestamp <= upper_bound:
+                        refined_candidates.append(cand)
+                
+                # Re-calculate with refined
+                if refined_candidates:
+                    stats = calculate_daily_stats(refined_candidates, user_shift)
+                    # Mark refined candidates as processed
+                    for rc in refined_candidates:
+                        processed_log_ids.add(rc.id)
+            else:
+                 # General Shift / No Shift -> Use whatever falls in the day (Standard behavior)
+                 # Mark all day candidates as processed
+                 for c in candidates:
+                     processed_log_ids.add(c.id)
+            
+            # Define day_logs for downstream analytics (Avg Confidence, Manual check)
+            day_logs = refined_candidates if refined_candidates else candidates
+            
             final_status = stats["attendance_status"]
             remarks = "-"
+            
+            stats["payable_fraction"] = 0.0 # Default
             
             if (user.id, curr) in leave_map:
                 l = leave_map[(user.id, curr)]
                 final_status = "Leave" # Or specific type
                 remarks = l.leave_type
-                # MVP: Assume Paid Leave
-                stats["payable_fraction"] = 1.0 
-                stats["payable_hours"] = 8.0 # Standard day?
+                stats["payable_fraction"] = 1.0 # Assume paid leave for now
+                stats["payable_hours"] = 8.0 
                 
-            elif curr.weekday() == 6: # Sunday
+            elif is_weekly_off:
                 final_status = "Week Off"
-                remarks = "Sunday"
-                stats["payable_fraction"] = 1.0 # If paid week off
+                remarks = "Weekly Off"
+                if stats["total_hours"] > 0:
+                     final_status = "Worked on WO" # Special status?
+                     # Add extra pay logic here if needed
+                stats["payable_fraction"] = 1.0 # WO is usually paid salary
             
-            shift_duration = 9.0
-            unpaid = max(0.0, shift_duration - stats["payable_hours"])
-            if final_status in ["Week Off", "Leave"]:
-                 unpaid = 0.0 # Don't count as unpaid loss
+            elif final_status == "Present":
+                 stats["payable_fraction"] = 1.0
+
+            # Calculate Overtime (Simple logic: Worked > Shift Duration)
+            shift_duration = 0.0
+            if user_shift:
+                # Naive duration calc
+                dummy_date = date(2000, 1, 1)
+                start_dt = datetime.combine(dummy_date, user_shift.start_time)
+                end_dt = datetime.combine(dummy_date, user_shift.end_time)
+                if user_shift.crosses_midnight:
+                    end_dt += timedelta(days=1)
+                shift_duration = (end_dt - start_dt).total_seconds() / 3600.0
             
+            if not shift_duration: shift_duration = 9.0 # Fallback
+
+            unpaid = 0.0
+            if final_status == "Absent":
+                 unpaid = shift_duration
+            
+            # Update stats with refined calculations
+            ot_hours = max(0, stats["total_hours"] - shift_duration) if final_status == "Present" else 0.0
+            
+            # Match logic and warnings
+            warnings = []
+            pairing_status = "Ok"
+            avg_conf = 0.0
+            is_man = False
+            c_note = "-"
+            
+            if final_status == "Present":
+                 # Check for single punch
+                 if stats["first_in"] == stats["last_out"] or not stats["last_out"]:
+                     warnings.append("Single Punch (In only)")
+                     pairing_status = "Unpaired"
+                 
+                 # Calc Avg Confidence
+                 if day_logs:
+                     total_conf = sum([l.confidence for l in day_logs])
+                     avg_conf = round(total_conf / len(day_logs), 2)
+                     
+                     # Check Manual
+                     if any(l.match_type == "manual_correction" for l in day_logs):
+                         is_man = True
+                         c_note = "Manual Correction Applied"
+                         
+            elif final_status == "Absent" and not is_weekly_off and not (user.id, curr) in leave_map:
+                 warnings.append("Missing Attendance")
+                 pairing_status = "Missing"
+
             report.append(DetailedReportRow(
                 date=curr.isoformat(),
                 employee_id=user.employee_id or "E000",
@@ -803,8 +1020,13 @@ def _get_detailed_report_data(session: Session, start_date: date, end_date: date
                 paid_hours=stats["payable_hours"],
                 unpaid_hours=round(unpaid, 2),
                 payable_day_fraction=stats["payable_fraction"],
-                source="Face",
-                remarks=remarks
+                source="Manual" if is_man else "Face",
+                remarks=remarks,
+                warnings="; ".join(warnings) if warnings else "-",
+                avg_confidence=avg_conf,
+                correction_note=c_note,
+                is_manual=is_man,
+                pairing_status=pairing_status
             ))
         curr += timedelta(days=1)
         
@@ -815,7 +1037,7 @@ import csv
 import io
 
 @router.get("/manager/reports/export")
-async def export_detailed_report(
+def export_detailed_report(
     start_date_str: str,
     end_date_str: str,
     session: Session = Depends(get_session),
@@ -837,7 +1059,8 @@ async def export_detailed_report(
     headers = [
         "Date", "Employee ID", "Employee Name", "Shift Name", "Shift Start", "Shift End",
         "Check-In", "Check-Out", "Total Hrs", "Late Duration", "Early Duration", 
-        "Overtime (hrs)", "Status", "Paid Hrs", "Unpaid Hrs", "Payable Fraction", "Source", "Remarks"
+        "Overtime (hrs)", "Status", "Paid Hrs", "Unpaid Hrs", "Payable Fraction", "Source", "Remarks",
+        "Warnings", "Pairing Status", "Avg Confidence", "Correction Notes"
     ]
     writer.writerow(headers)
     
@@ -865,7 +1088,11 @@ async def export_detailed_report(
             row.unpaid_hours,
             row.payable_day_fraction,
             row.source,
-            row.remarks
+            row.remarks,
+            row.warnings,
+            row.pairing_status,
+            row.avg_confidence,
+            row.correction_note
         ])
         
     output.seek(0)

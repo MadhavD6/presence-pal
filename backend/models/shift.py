@@ -8,6 +8,7 @@ class Shift(SQLModel, table=True):
     start_time: time
     end_time: time
     grace_period_mins: int = Field(default=15)
+    crosses_midnight: bool = Field(default=False) # True if end_time < start_time
 
 
 class EmployeeShift(SQLModel, table=True):
@@ -17,3 +18,4 @@ class EmployeeShift(SQLModel, table=True):
     start_date: date
     end_date: Optional[date] = Field(default=None) # Null means currently active logic
     is_active: bool = Field(default=True)
+    weekly_offs: str = Field(default="6") # Comma-separated weekday numbers (0=Mon, 6=Sun). Default is Sunday.

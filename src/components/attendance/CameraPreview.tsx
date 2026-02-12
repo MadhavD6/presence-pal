@@ -23,6 +23,7 @@ const CameraPreview = forwardRef<CameraPreviewHandle, CameraPreviewProps>(({
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string>("");
   const [cameraMode, setCameraMode] = useState<'user' | 'environment'>('user');
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -37,6 +38,16 @@ const CameraPreview = forwardRef<CameraPreviewHandle, CameraPreviewProps>(({
         stopCamera();
       }
 
+      // 1. Check for Secure Context (HTTPS/Localhost)
+      if (!window.isSecureContext) {
+        throw new Error("INSECURE_CONTEXT: Camera requires HTTPS or Localhost");
+      }
+
+      // 2. Check if mediaDevices exists
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("UNSUPPORTED_BROWSER: Camera API not available");
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: cameraMode }
       });
@@ -46,9 +57,26 @@ const CameraPreview = forwardRef<CameraPreviewHandle, CameraPreviewProps>(({
         videoRef.current.srcObject = stream;
       }
       setHasPermission(true);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Camera access denied:", err);
       setHasPermission(false);
+
+      // Log specific reason for debugging
+      let reason = "Unknown Error";
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        reason = "Permission Denied: Please allow camera access in browser settings.";
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        reason = "No Camera Found: Please ensure camera is connected.";
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        reason = "Camera In Use: Please close other apps using the camera.";
+      } else if (err.message && err.message.includes("INSECURE_CONTEXT")) {
+        reason = "Insecure Connection: Camera requires HTTPS. Please use the secure Cloudflare link.";
+      }
+
+      // Update helper text if possible, or just log
+      console.warn("Camera Failure Reason:", reason);
+      setErrorMessage(reason);
+      // We could use a toast here if we imported it, but for now console is good enough for remote debug
     }
   };
 
@@ -102,7 +130,12 @@ const CameraPreview = forwardRef<CameraPreviewHandle, CameraPreviewProps>(({
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-background/90 text-center p-4">
           <Video className="w-12 h-12 mb-4 text-muted-foreground" />
           <h3 className="text-lg font-semibold mb-2">Camera Access Required</h3>
-          <p className="text-sm text-muted-foreground">Please allow camera access to use this feature.</p>
+          <p className="text-sm text-muted-foreground mb-4">Please allow camera access to use this feature.</p>
+          {errorMessage && (
+            <div className="bg-destructive/10 p-3 rounded-md max-w-xs">
+              <p className="text-xs text-destructive font-medium">{errorMessage}</p>
+            </div>
+          )}
         </div>
       )}
 

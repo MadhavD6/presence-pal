@@ -34,8 +34,12 @@ const EmployeeDashboard = ({ onBack }: EmployeeDashboardProps) => {
 
     // Data Fetching
     const { data: dashboardData, isLoading, error } = useQuery({
-        queryKey: ['employeeDashboard'],
-        queryFn: () => employeeApi.getDashboard(),
+        queryKey: ['employeeDashboard', selectedDate.getMonth(), selectedDate.getFullYear()],
+        queryFn: () => {
+            // Format YYYY-MM
+            const monthStr = `${selectedDate.getFullYear()}-${(selectedDate.getMonth() + 1).toString().padStart(2, '0')}`;
+            return employeeApi.getDashboard(monthStr);
+        },
         retry: 2, // Retry up to 2 times on failure
         retryDelay: 500, // Wait 500ms between retries
         enabled: isAuthenticated, // Only run if authenticated
@@ -139,14 +143,16 @@ const EmployeeDashboard = ({ onBack }: EmployeeDashboardProps) => {
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => navigate('/manager')}
-                            className="text-xs font-semibold bg-white/20 hover:bg-white/30 text-white border-0 active:scale-95 transition-transform"
-                        >
-                            Manager View
-                        </Button>
+                        {(dashboardData?.role === 'admin' || dashboardData?.role === 'manager') && (
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => navigate('/manager')}
+                                className="text-xs font-semibold bg-white/20 hover:bg-white/30 text-white border-0 active:scale-95 transition-transform"
+                            >
+                                Manager View
+                            </Button>
+                        )}
                         <Button variant="ghost" size="icon" onClick={handleLogout} className="text-primary-foreground hover:bg-white/20 active:scale-95 transition-transform">
                             <LogOut className="w-5 h-5" />
                         </Button>
@@ -206,17 +212,23 @@ const EmployeeDashboard = ({ onBack }: EmployeeDashboardProps) => {
                                 </Button>
                             </div>
                             <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                                {displayShifts.map((shift, idx) => (
-                                    <div
-                                        key={idx}
-                                        onClick={() => setCurrentView('timesheet')}
-                                        className={`flex-shrink-0 w-16 h-20 rounded-xl flex flex-col items-center justify-center gap-1 border cursor-pointer transition-transform active:scale-95 ${shift.isToday ? 'border-primary bg-primary/5' : 'border-border bg-card'} ${shift.isOff ? 'bg-muted/50' : ''}`}
-                                    >
-                                        <span className="text-xs text-muted-foreground">{shift.day}</span>
-                                        <span className="text-lg font-bold">{shift.date}</span>
-                                        <span className={`text-xs font-medium ${shift.isOff ? 'text-muted-foreground' : 'text-primary'}`}>{shift.type}</span>
+                                {displayShifts.length > 0 ? (
+                                    displayShifts.map((shift, idx) => (
+                                        <div
+                                            key={idx}
+                                            onClick={() => setCurrentView('timesheet')}
+                                            className={`flex-shrink-0 w-16 h-20 rounded-xl flex flex-col items-center justify-center gap-1 border cursor-pointer transition-transform active:scale-95 ${shift.isToday ? 'border-primary bg-primary/5' : 'border-border bg-card'} ${shift.isOff ? 'bg-muted/50' : ''}`}
+                                        >
+                                            <span className="text-xs text-muted-foreground">{shift.day}</span>
+                                            <span className="text-lg font-bold">{shift.date}</span>
+                                            <span className={`text-xs font-medium ${shift.isOff ? 'text-muted-foreground' : 'text-primary'}`}>{shift.type}</span>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="text-sm text-muted-foreground p-2">
+                                        No shift assigned. Please contact your manager.
                                     </div>
-                                ))}
+                                )}
                             </div>
                         </div>
 
@@ -296,6 +308,12 @@ const EmployeeDashboard = ({ onBack }: EmployeeDashboardProps) => {
                                             if (item === 'My Reg History') {
                                                 setHistoryTab('corrections');
                                                 setCurrentView('leave-history');
+                                            } else if (item === 'My Overtime History') {
+                                                // Overtime is visible in Timesheet details
+                                                setCurrentView('timesheet');
+                                            } else if (item === 'My Shift & Weekly Off History') {
+                                                // Shift details are in Timesheet
+                                                setCurrentView('timesheet');
                                             }
                                         }}
                                     >

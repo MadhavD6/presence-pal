@@ -1,26 +1,32 @@
 import cv2
 import numpy as np
 from skimage.feature import local_binary_pattern
+from backend.core.config import get_settings
 
 class LivenessService:
     def __init__(self):
-        # Thresholds - RELAXED for easier UX
-        self.blur_threshold = 15.0 # Lowered from 30.0
-        self.motion_threshold = 0.002  # 0.2% of pixels must change
+        settings = get_settings()
+        
+        # Thresholds from config (configurable via .env)
+        self.blur_threshold = settings.LIVENESS_BLUR_THRESHOLD
+        self.motion_threshold = settings.LIVENESS_MOTION_THRESHOLD
+        self.texture_variance_threshold = settings.LIVENESS_LBP_THRESHOLD
+        self.min_face_ratio = settings.LIVENESS_MIN_FACE_RATIO
         
         # LBP settings for texture analysis
         self.lbp_radius = 3
         self.lbp_points = 8 * self.lbp_radius
-        self.texture_variance_threshold = 20  # Lowered from 100 - reduce false positives
         
-        # Load Haar Cascades
+        # Load Haar Cascades (frontal + profile for better angle tolerance)
         try:
             self.eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_eye.xml')
             self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+            self.profile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml')
         except:
             print("Warning: Could not load cascades. Advanced detection disabled.")
             self.eye_cascade = None
             self.face_cascade = None
+            self.profile_cascade = None
 
     def _compute_lbp_variance(self, gray_img) -> float:
         """
@@ -88,20 +94,21 @@ class LivenessService:
         
         return True, "consistent"
 
-    def check_liveness(self, frames_bytes: list[bytes]) -> tuple[bool, str]:
+    def check_liveness(self, frames_bytes: list[bytes]) -> tuple[bool, str, dict]:
         """
-        Multi-frame liveness check with:
-        1. Blur detection
-        2. Motion detection  
-        3. LBP texture analysis (anti-screen/photo)
-        4. Blink pattern detection
-        5. Face size consistency
-        
-        Returns: (is_live, check_failure_reason)
+        Multi-frame liveness check with detailed metrics.
+        Returns: (is_live, check_failure_reason, metrics_dict)
         """
+        metrics = {
+            "blur_score": 0.0,
+            "motion_score": 0.0, 
+            "texture_score": 0.0,
+            "blink_detected": False
+        }
+
         if not frames_bytes:
             print("Liveness Reject: No frames")
-            return False, "No video frames received"
+            return False, "No video frames received", metrics
 
         try:
             frames = []
@@ -112,42 +119,70 @@ class LivenessService:
                     frames.append(img)
             
             if not frames:
-                return False, "Could not decode frames"
+                return False, "Could not decode frames", metrics
 
             # 1. Blur Check (on the first frame)
             mid_frame = frames[0]
             variance = cv2.Laplacian(mid_frame, cv2.CV_64F).var()
+            metrics["blur_score"] = round(variance, 2)
+            
             if variance < self.blur_threshold:
                 print(f"Liveness Reject: Blur {variance} < {self.blur_threshold}")
-                return False, "Image too blurry. Please stand still."
+                return False, "Image too blurry. Please stand still.", metrics
+
+            # 1.5. Face Detection Validation (uses both frontal + profile for angle tolerance)
+            if self.face_cascade is not None:
+                face_count = 0
+                for frame in frames:
+                    # Try frontal face first
+                    faces = self.face_cascade.detectMultiScale(frame, 1.1, 5, minSize=(60, 60))
+                    if len(faces) >= 1:
+                        face_count += 1
+                    elif self.profile_cascade is not None:
+                        # Try profile (side) face if frontal not found
+                        profile_faces = self.profile_cascade.detectMultiScale(frame, 1.1, 5, minSize=(60, 60))
+                        if len(profile_faces) >= 1:
+                            face_count += 1
+                
+                metrics["face_detected_frames"] = face_count
+                print(f"Liveness: Face detected in {face_count}/{len(frames)} frames")
+                
+                # Use configurable minimum face ratio
+                min_required = max(1, int(len(frames) * self.min_face_ratio))
+                if face_count < min_required:
+                    print(f"Liveness Reject: Face detected in only {face_count}/{len(frames)} frames (need {min_required})")
+                    return False, "No clear face detected. Please uncover your face and look at the camera.", metrics
 
             # If only 1 frame, limited checks
             if len(frames) < 2:
                 print("Liveness Warning: Single frame provided.")
-                return True, "Single frame accepted (Limited Security)"
+                return True, "Single frame accepted (Limited Security)", metrics
 
             # 2. Motion Check
             diff = cv2.absdiff(frames[0], frames[-1])
             non_zero_count = np.count_nonzero(diff > 15)
             total_pixels = mid_frame.shape[0] * mid_frame.shape[1]
             motion_score = non_zero_count / total_pixels
+            metrics["motion_score"] = round(motion_score, 6)
             
             print(f"Liveness Motion Score: {motion_score:.4f}")
             
             if motion_score < self.motion_threshold:
                 print("Liveness Reject: No motion detected (Static Photo?)")
-                return False, "Static photo detected. Please blink or move slightly."
+                return False, "Static photo detected. Please blink or move slightly.", metrics
 
             # 3. LBP Texture Analysis (Anti-Screen)
             texture_variance = self._compute_lbp_variance(mid_frame)
+            metrics["texture_score"] = round(texture_variance, 2)
             print(f"Liveness LBP Variance: {texture_variance:.2f}")
             
             if texture_variance < self.texture_variance_threshold:
                 print(f"Liveness Reject: Low texture variance (screen/photo?)")
-                return False, "Screen or printed photo detected. Please use a real face."
+                return False, "Screen or printed photo detected. Please use a real face.", metrics
 
             # 4. Blink Pattern Detection
             blink_detected, eyes_count = self._check_blink_pattern(frames)
+            metrics["blink_detected"] = blink_detected
             print(f"Eyes detected in {eyes_count}/{len(frames)} frames, Blink: {blink_detected}")
             
             # 5. Face Size Consistency
@@ -155,13 +190,13 @@ class LivenessService:
             
             if not face_consistent:
                 print(f"Liveness Reject: {consistency_reason}")
-                return False, "Face movement inconsistent. Please hold still."
+                return False, "Face movement inconsistent. Please hold still.", metrics
 
-            return True, "Passed"
+            return True, "Passed", metrics
 
         except Exception as e:
             print(f"Liveness Check Error: {e}")
-            return False, f"Liveness check error: {str(e)}"
+            return False, f"Liveness check error: {str(e)}", metrics
 
 liveness_service = LivenessService()
 

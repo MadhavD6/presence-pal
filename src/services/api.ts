@@ -15,6 +15,7 @@ export interface User {
 export interface EnrollResponse {
     status: string;
     user_id: string;
+    employee_id: string;
 }
 
 export interface IdentifyResponse {
@@ -174,11 +175,22 @@ export const api = {
     async downloadManagerReport(from: Date, to: Date): Promise<Blob> {
         const fromStr = from.toISOString().split('T')[0];
         const toStr = to.toISOString().split('T')[0];
+
+        // Use Kiosk Auth Headers (same as other manager endpoints)
+        const headers = getAuthHeaders();
+        // Remove Content-Type (fetch adds it automatically, but we want GET so no body)
+        // Actually for GET fetch doesn't add Content-Type usually, providing empty object is fine if getAuthHeaders returns one.
+
         const response = await fetch(`${API_BASE_URL}/manager/reports/export?start_date_str=${fromStr}&end_date_str=${toStr}`, {
             method: 'GET',
-            headers: getAuthHeaders(),
+            headers: headers,
         });
-        if (!response.ok) throw new Error('Failed to download report');
+
+        if (!response.ok) {
+            const text = await response.text();
+            console.error('Export Failed:', response.status, text);
+            throw new Error(`Failed to download report: ${response.status}`);
+        }
         return response.blob();
     },
     // ... rest of existing api object ...
@@ -214,6 +226,31 @@ export const api = {
             headers: { 'Content-Type': 'application/json' },
         });
         if (!response.ok) throw new Error('Registration failed');
+        return response.json();
+    },
+
+    async getKioskDetails(): Promise<{ status: string, kiosk: { id: number, device_id: string, location: string, building: string, site_id?: number } }> {
+        const response = await fetch(`${API_BASE_URL}/kiosk/heartbeat`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+        });
+        if (!response.ok) throw new Error('Failed to fetch kiosk details');
+        return response.json();
+    },
+
+    async updateKiosk(id: number, data: { device_id?: string, location?: string, building?: string, site_id?: number }) {
+        const response = await fetch(`${API_BASE_URL}/manager/kiosks/${id}`, {
+            method: 'PUT',
+            headers: {
+                ...getAuthHeaders(),
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.detail || 'Failed to update kiosk');
+        }
         return response.json();
     },
 
@@ -298,6 +335,43 @@ export const api = {
             body: JSON.stringify(items)
         });
         if (!response.ok) throw new Error('Sync failed');
+        return response.json();
+    },
+
+    // Kiosk Setup
+    async getSetupSites(): Promise<any[]> {
+        const response = await fetch(`${API_BASE_URL}/kiosk/setup/sites`);
+        if (!response.ok) throw new Error('Failed to fetch sites');
+        return response.json();
+    },
+
+    async getSetupKiosks(siteId: number): Promise<any[]> {
+        const response = await fetch(`${API_BASE_URL}/kiosk/setup/kiosks?site_id=${siteId}`);
+        if (!response.ok) throw new Error('Failed to fetch kiosks');
+        return response.json();
+    },
+
+    async activateKiosk(data: { site_id: number, device_id: string, location: string, building: string, kiosk_id?: number }): Promise<{ api_key: string }> {
+        const response = await fetch(`${API_BASE_URL}/kiosk/setup/activate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.detail || 'Activation failed');
+        }
+        return response.json();
+    },
+
+    async autoRegisterKiosk(): Promise<{ api_key: string, device_id: string, kiosk_id: number }> {
+        const response = await fetch(`${API_BASE_URL}/kiosk/auto-register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        });
+        if (!response.ok) {
+            throw new Error('Auto-registration failed');
+        }
         return response.json();
     }
 };
@@ -522,14 +596,19 @@ export const shiftsApi = {
         return response.json();
     },
 
-    assignRoster: async (userIds: number[], shiftId: number, isPermanent: boolean = true) => {
+    assignRoster: async (shiftId: number, userIds: number[], weeklyOffs?: string, isPermanent: boolean = true) => {
         const response = await fetch(`${API_BASE_URL}/manager/roster/assign`, {
             method: 'POST',
             headers: {
                 ...getAuthHeaders(),
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ user_ids: userIds, shift_id: shiftId, is_permanent: isPermanent })
+            body: JSON.stringify({
+                user_ids: userIds,
+                shift_id: shiftId,
+                weekly_offs: weeklyOffs || '6',
+                is_permanent: isPermanent
+            })
         });
         if (!response.ok) throw new Error('Failed to assign roster');
         return response.json();
@@ -571,8 +650,9 @@ export const authApi = {
 };
 
 export const employeeApi = {
-    getDashboard: async () => {
-        const response = await fetch(`${API_BASE_URL}/employee/dashboard`, {
+    getDashboard: async (month?: string) => {
+        const url = month ? `${API_BASE_URL}/employee/dashboard?month=${month}` : `${API_BASE_URL}/employee/dashboard`;
+        const response = await fetch(url, {
             headers: getEmployeeHeaders()
         });
         if (!response.ok) throw new Error('Failed to fetch dashboard');

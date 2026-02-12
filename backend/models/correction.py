@@ -9,7 +9,8 @@ class AttendanceCorrection(SQLModel, table=True):
     corrected_in: Optional[datetime] = None
     corrected_out: Optional[datetime] = None
     reason: str
+    attachment: Optional[str] = None # Path to file
     status: str = Field(default="Pending") # Pending, Approved, Rejected
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.now)
     resolved_at: Optional[datetime] = None
     resolver_id: Optional[int] = None # Manager who approved/rejected

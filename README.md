@@ -1,6 +1,6 @@
-# PresencePal - Comprehensive Technical Documentation
+# Prodify Face App - Comprehensive Technical Documentation
 
-**PresencePal** is a Face Attendance Kiosk Application engineered for high-throughput, touch-free attendance marking. This document serves as a "Zero-to-Hero" guide, detailing every layer of the stack, from the React frontend to the SQLite schema.
+**Prodify Face App** is a Face Attendance Kiosk Application engineered for high-throughput, touch-free attendance marking. This document serves as a "Zero-to-Hero" guide, detailing every layer of the stack, from the React frontend to the SQLite schema.
 
 ---
 

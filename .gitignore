@@ -1,12 +1,7 @@
-.venv/
-kiosk.db
-kiosk.db.bak
-thumbnails/
-node_modules/
-cloudflared.deb
-=0.22.0
+# -----------------------------
 # Logs
-logs
+# -----------------------------
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -14,18 +9,71 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+# Face / App Runtime Logs
+face_logs/
+thumbnails/
+
+# -----------------------------
+# Node / Frontend
+# -----------------------------
+node_modules/
+dist/
+dist-ssr/
+build/
+.cache/
+coverage/
+
 *.local
 
-# Editor directories and files
+# -----------------------------
+# Python
+# -----------------------------
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+
+# -----------------------------
+# Environment / Secrets
+# -----------------------------
+.env
+.env.*
+!.env.example
+
+# -----------------------------
+# Databases
+# -----------------------------
+*.db
+*.sqlite
+*.sqlite3
+
+# -----------------------------
+# OS / Editor
+# -----------------------------
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
+Thumbs.db
+
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+*.swp
+*.bak
+*.orig
+
+# -----------------------------
+# Misc / Accidental Files
+# -----------------------------
+=*
+*.tmp
+*.temp

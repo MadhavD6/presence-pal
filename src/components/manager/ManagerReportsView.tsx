@@ -46,15 +46,21 @@ export const ManagerReportsView = () => {
     const handleExport = async () => {
         try {
             const blob = await api.downloadManagerReport(date.from, date.to);
-            const url = window.URL.createObjectURL(blob);
+            // Force type to text/csv to ensure browser handles it correctly
+            const csvBlob = new Blob([blob], { type: 'text/csv;charset=utf-8;' });
+            const url = window.URL.createObjectURL(csvBlob);
             const a = document.createElement('a');
+            a.style.display = 'none';
             a.href = url;
-            a.download = `attendance_report_${format(date.from, 'yyyy-MM-dd')}_to_${format(date.to, 'yyyy-MM-dd')}.csv`;
+            const filename = `attendance_report_${format(date.from, 'yyyy-MM-dd')}_to_${format(date.to, 'yyyy-MM-dd')}.csv`;
+            a.download = filename;
             document.body.appendChild(a);
             a.click();
+            window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
             toast.success("Export downloaded");
         } catch (error) {
+            console.error(error);
             toast.error("Export failed");
         }
     };

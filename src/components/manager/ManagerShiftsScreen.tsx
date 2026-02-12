@@ -20,7 +20,8 @@ export const ManagerShiftsScreen = () => {
         name: '',
         start_time: '09:00',
         end_time: '18:00',
-        late_threshold_minutes: '15'
+        grace_period_mins: '15',
+        crosses_midnight: false
     });
 
     // Assignment States
@@ -29,6 +30,17 @@ export const ManagerShiftsScreen = () => {
     const [employees, setEmployees] = useState<any[]>([]);
     const [selectedEmps, setSelectedEmps] = useState<number[]>([]);
     const [searchEmp, setSearchEmp] = useState('');
+    const [weeklyOffs, setWeeklyOffs] = useState<number[]>([6]); // Default Sunday
+
+    const WEEKDAYS = [
+        { value: 0, label: 'Mon' },
+        { value: 1, label: 'Tue' },
+        { value: 2, label: 'Wed' },
+        { value: 3, label: 'Thu' },
+        { value: 4, label: 'Fri' },
+        { value: 5, label: 'Sat' },
+        { value: 6, label: 'Sun' },
+    ];
 
     // --- Effects ---
     useEffect(() => {
@@ -61,7 +73,7 @@ export const ManagerShiftsScreen = () => {
     // --- Handlers: Shift CRUD ---
     const handleOpenCreate = () => {
         setEditingShift(null);
-        setFormData({ name: '', start_time: '09:00', end_time: '18:00', late_threshold_minutes: '15' });
+        setFormData({ name: '', start_time: '09:00', end_time: '18:00', grace_period_mins: '15', crosses_midnight: false });
         setIsCreateOpen(true);
     };
 
@@ -71,7 +83,8 @@ export const ManagerShiftsScreen = () => {
             name: shift.name,
             start_time: shift.start_time.slice(0, 5),
             end_time: shift.end_time.slice(0, 5),
-            late_threshold_minutes: shift.late_threshold_minutes.toString()
+            grace_period_mins: (shift.grace_period_mins || 15).toString(),
+            crosses_midnight: shift.crosses_midnight || false
         });
         setIsCreateOpen(true);
     };
@@ -91,8 +104,11 @@ export const ManagerShiftsScreen = () => {
         e.preventDefault();
         try {
             const payload = {
-                ...formData,
-                late_threshold_minutes: parseInt(formData.late_threshold_minutes)
+                name: formData.name,
+                start_time: formData.start_time,
+                end_time: formData.end_time,
+                grace_period_mins: parseInt(formData.grace_period_mins),
+                crosses_midnight: formData.crosses_midnight
             };
 
             if (editingShift) {
@@ -124,7 +140,8 @@ export const ManagerShiftsScreen = () => {
     const submitAssign = async () => {
         if (!assignShiftId) return;
         try {
-            await shiftsApi.assignRoster(assignShiftId, selectedEmps);
+            const weeklyOffsStr = weeklyOffs.join(',');
+            await shiftsApi.assignRoster(assignShiftId, selectedEmps, weeklyOffsStr);
             toast.success(`Assigned ${selectedEmps.length} employees to shift`);
             setIsAssignOpen(false);
         } catch (e) {
@@ -242,11 +259,22 @@ export const ManagerShiftsScreen = () => {
                             <Input
                                 type="number"
                                 min="0"
-                                value={formData.late_threshold_minutes}
-                                onChange={e => setFormData({ ...formData, late_threshold_minutes: e.target.value })}
+                                value={formData.grace_period_mins}
+                                onChange={e => setFormData({ ...formData, grace_period_mins: e.target.value })}
                                 required
                             />
                             <p className="text-xs text-muted-foreground">Time allowed before marking as 'Late'</p>
+                        </div>
+                        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/30">
+                            <Checkbox
+                                id="crosses_midnight"
+                                checked={formData.crosses_midnight}
+                                onCheckedChange={(checked) => setFormData({ ...formData, crosses_midnight: !!checked })}
+                            />
+                            <div>
+                                <Label htmlFor="crosses_midnight" className="cursor-pointer">Night Shift (Crosses Midnight)</Label>
+                                <p className="text-xs text-muted-foreground">Enable for shifts like 10 PM - 6 AM</p>
+                            </div>
                         </div>
                         <DialogFooter>
                             <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
@@ -288,6 +316,32 @@ export const ManagerShiftsScreen = () => {
                             )
                         ))}
                         {employees.length === 0 && <div className="text-center p-4 text-muted-foreground">No employees found.</div>}
+                    </div>
+
+                    {/* Weekly Offs Selector */}
+                    <div className="space-y-2 pt-2 border-t">
+                        <Label className="text-sm font-medium">Weekly Offs (Select days off)</Label>
+                        <div className="flex flex-wrap gap-2">
+                            {WEEKDAYS.map(day => (
+                                <Button
+                                    key={day.value}
+                                    type="button"
+                                    size="sm"
+                                    variant={weeklyOffs.includes(day.value) ? "default" : "outline"}
+                                    className="w-12"
+                                    onClick={() => {
+                                        if (weeklyOffs.includes(day.value)) {
+                                            setWeeklyOffs(weeklyOffs.filter(d => d !== day.value));
+                                        } else {
+                                            setWeeklyOffs([...weeklyOffs, day.value]);
+                                        }
+                                    }}
+                                >
+                                    {day.label}
+                                </Button>
+                            ))}
+                        </div>
+                        <p className="text-xs text-muted-foreground">Selected: {weeklyOffs.length === 0 ? 'None' : weeklyOffs.map(d => WEEKDAYS.find(w => w.value === d)?.label).join(', ')}</p>
                     </div>
 
                     <DialogFooter className="mt-4">

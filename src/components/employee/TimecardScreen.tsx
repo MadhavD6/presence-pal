@@ -68,6 +68,8 @@ const TimecardScreen = ({ date, onBack }: TimecardScreenProps) => {
                     console.log("Correction Submitted:", formData);
                     setShowCorrection(false);
                 }}
+                userName={data.name}
+                employeeId={data.id}
             />
         );
     }

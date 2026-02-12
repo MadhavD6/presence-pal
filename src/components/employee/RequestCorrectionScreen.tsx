@@ -14,16 +14,17 @@ import {
 import { useState } from 'react';
 import { employeeApi } from '@/services/api';
 import { useToast } from '@/components/ui/use-toast';
-import { useAuth } from '@/context/AuthContext';
+
 
 interface RequestCorrectionScreenProps {
     date: Date;
     onBack: () => void;
     onSubmit: (data: any) => void;
+    userName?: string;
+    employeeId?: string;
 }
 
-const RequestCorrectionScreen = ({ date, onBack, onSubmit }: RequestCorrectionScreenProps) => {
-    const { user } = useAuth();
+const RequestCorrectionScreen = ({ date, onBack, onSubmit, userName, employeeId }: RequestCorrectionScreenProps) => {
     const { toast } = useToast();
 
     // Form State
@@ -83,11 +84,11 @@ const RequestCorrectionScreen = ({ date, onBack, onSubmit }: RequestCorrectionSc
                 <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-black/10 overflow-hidden">
-                            <img src={`https://ui-avatars.com/api/?name=${user?.name || "User"}&background=random`} alt="Profile" className="w-full h-full object-cover" />
+                            <img src={`https://ui-avatars.com/api/?name=${userName || "User"}&background=random`} alt="Profile" className="w-full h-full object-cover" />
                         </div>
                         <div>
-                            <h3 className="font-bold text-sm">{user?.name}</h3>
-                            <p className="text-xs text-muted-foreground">({user?.employee_id})</p>
+                            <h3 className="font-bold text-sm">{userName || "User"}</h3>
+                            <p className="text-xs text-muted-foreground">({employeeId || "ID-..."})</p>
                         </div>
                     </div>
                     <span className="px-2 py-0.5 text-xs font-bold rounded bg-gray-200 text-gray-700">{currentStats.status}</span>
@@ -161,36 +162,36 @@ const RequestCorrectionScreen = ({ date, onBack, onSubmit }: RequestCorrectionSc
                         </div>
 
                         {/* Extra fields from previous UI (Visual/Disabled for now) */}
-                        <div className="grid grid-cols-2 gap-4 opacity-50 pointer-events-none">
+                        <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <Label>Worked Hours</Label>
                                 <div className="flex gap-2">
-                                    <Input placeholder="-" className="text-center" disabled />
-                                    <Input placeholder="-" className="text-center" disabled />
+                                    <Input placeholder="-" className="text-center" />
+                                    <Input placeholder="-" className="text-center" />
                                 </div>
                             </div>
                             <div className="space-y-2">
                                 <Label>Overtime</Label>
                                 <div className="flex gap-2">
-                                    <Input placeholder="hrs" className="text-center placeholder:text-muted-foreground/50" disabled />
-                                    <Input placeholder="min" className="text-center placeholder:text-muted-foreground/50" disabled />
+                                    <Input placeholder="hrs" className="text-center" />
+                                    <Input placeholder="min" className="text-center" />
                                 </div>
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4 opacity-50 pointer-events-none">
+                        <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <Label>Break Time (Paid)</Label>
                                 <div className="flex gap-2">
-                                    <Input placeholder="hrs" className="text-center placeholder:text-muted-foreground/50" disabled />
-                                    <Input placeholder="min" className="text-center placeholder:text-muted-foreground/50" disabled />
+                                    <Input placeholder="hrs" className="text-center" />
+                                    <Input placeholder="min" className="text-center" />
                                 </div>
                             </div>
                             <div className="space-y-2">
                                 <Label>Break Time (Unpaid)</Label>
                                 <div className="flex gap-2">
-                                    <Input placeholder="hrs" className="text-center placeholder:text-muted-foreground/50" disabled />
-                                    <Input placeholder="min" className="text-center placeholder:text-muted-foreground/50" disabled />
+                                    <Input placeholder="hrs" className="text-center" />
+                                    <Input placeholder="min" className="text-center" />
                                 </div>
                             </div>
                         </div>

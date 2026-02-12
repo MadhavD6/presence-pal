@@ -27,6 +27,7 @@ const ClockCaptureScreen = ({
 
   // Burst Capture State
   const [capturedBlobs, setCapturedBlobs] = useState<Blob[]>([]);
+  const capturedBlobsRef = useRef<Blob[]>([]); // Sync ref for safety check
 
   const cameraRef = useRef<CameraPreviewHandle>(null);
   const { toast } = useToast();
@@ -55,10 +56,12 @@ const ClockCaptureScreen = ({
 
   // Handle accumulation and submission
   useEffect(() => {
+    capturedBlobsRef.current = capturedBlobs; // Keep ref in sync
     if (capturedBlobs.length === 5) {
       setCaptureStatus("Verifying identity...");
       processIdentification(capturedBlobs);
       setCapturedBlobs([]); // Reset
+      capturedBlobsRef.current = [];
     } else if (capturedBlobs.length > 0) {
       setCaptureProgress(capturedBlobs.length);
     }
@@ -67,7 +70,8 @@ const ClockCaptureScreen = ({
   const handleCapture = useCallback(async () => {
     if (isCapturing || !cameraRef.current) return;
     setIsCapturing(true);
-    setCapturedBlobs([]); // Reset before starting
+    setCapturedBlobs([]);
+    capturedBlobsRef.current = [];
     setCaptureProgress(0);
     setCaptureStatus("Capturing frames...");
 
@@ -77,6 +81,28 @@ const ClockCaptureScreen = ({
       cameraRef.current.capture();
       await new Promise(r => setTimeout(r, 150)); // 150ms delay
     }
+
+    // Safety Timeout: If for some reason we don't get 5 frames (lag/error), 
+    // don't hang forever. Wait 2s extra then force proceed.
+    setTimeout(() => {
+      if (capturedBlobsRef.current.length > 0 && capturedBlobsRef.current.length < 5) {
+        console.warn("Capture timeout - proceeding with partial frames", capturedBlobsRef.current.length);
+        setCaptureStatus("Verifying identity (partial)...");
+        processIdentification(capturedBlobsRef.current);
+        setCapturedBlobs([]);
+        capturedBlobsRef.current = [];
+      } else if (capturedBlobsRef.current.length === 0 && isCapturing) {
+        // Still 0 after timeout? 
+        toast({
+          title: "Camera Error",
+          description: "No frames captured. Please check camera permissions.",
+          variant: "destructive"
+        });
+        setIsCapturing(false);
+        setCaptureStatus("Capture Failed");
+      }
+    }, 2000);
+
   }, [isCapturing]);
 
   const onImageCaptured = (blob: Blob) => {
@@ -94,7 +120,7 @@ const ClockCaptureScreen = ({
         // Auto-retry on no_face error
         if (response.error_code === 'no_face_detected' && retryCount < MAX_RETRIES) {
           setRetryCount(prev => prev + 1);
-          setCaptureStatus(`No face detected. Retrying (${retryCount + 1}/${MAX_RETRIES})...`);
+          setCaptureStatus(`No face found. Check lighting... Retrying (${retryCount + 1}/${MAX_RETRIES})`);
           setIsCapturing(false);
           setCaptureProgress(0);
           // Auto retry after a short delay
@@ -207,8 +233,8 @@ const ClockCaptureScreen = ({
                     <div
                       key={i}
                       className={`w-3 h-3 rounded-full transition-all duration-200 ${i <= captureProgress
-                          ? 'bg-green-400 scale-110'
-                          : 'bg-white/30'
+                        ? 'bg-green-400 scale-110'
+                        : 'bg-white/30'
                         }`}
                     />
                   ))}

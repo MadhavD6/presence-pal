@@ -19,7 +19,7 @@ class PayrollConfigUpdate(BaseModel):
     late_deduction_amount: float = 0.0
 
 @router.get("/config/{user_id}", response_model=PayrollConfig)
-async def get_user_payroll_config(
+def get_user_payroll_config(
     user_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_manager_user)
@@ -27,7 +27,7 @@ async def get_user_payroll_config(
     return get_or_create_config(session, user_id)
 
 @router.put("/config/{user_id}", response_model=PayrollConfig)
-async def update_user_payroll_config(
+def update_user_payroll_config(
     user_id: int,
     data: PayrollConfigUpdate,
     session: Session = Depends(get_session),
@@ -45,7 +45,7 @@ async def update_user_payroll_config(
     return config
 
 @router.post("/generate", response_model=PayrollRun)
-async def generate_payroll(
+def generate_payroll(
     start_date: date,
     end_date: date,
     current_user: User = Depends(get_current_manager_user),
@@ -69,14 +69,14 @@ async def generate_payroll(
     return run
 
 @router.get("/runs", response_model=List[PayrollRun])
-async def list_payroll_runs(
+def list_payroll_runs(
     current_user: User = Depends(get_current_manager_user),
     session: Session = Depends(get_session)
 ):
     return session.exec(select(PayrollRun).order_by(PayrollRun.id.desc())).all()
 
 @router.get("/run/{run_id}")
-async def get_payroll_run_detail(
+def get_payroll_run_detail(
     run_id: int,
     current_user: User = Depends(get_current_manager_user),
     session: Session = Depends(get_session)
@@ -104,7 +104,7 @@ async def get_payroll_run_detail(
     }
 
 @router.post("/run/{run_id}/finalize")
-async def finalize_payroll_run(
+def finalize_payroll_run(
     run_id: int,
     current_user: User = Depends(get_current_manager_user),
     session: Session = Depends(get_session)

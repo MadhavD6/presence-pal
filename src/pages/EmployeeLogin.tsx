@@ -13,7 +13,7 @@ interface EmployeeLoginProps {
 }
 
 const EmployeeLogin: React.FC<EmployeeLoginProps> = ({ onBack, onLoginSuccess }) => {
-    const [email, setEmail] = useState('');
+    const [identifier, setIdentifier] = useState(''); // Email or Employee ID
     const [password, setPassword] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const { toast } = useToast();
@@ -21,7 +21,7 @@ const EmployeeLogin: React.FC<EmployeeLoginProps> = ({ onBack, onLoginSuccess })
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!email || !password) {
+        if (!identifier || !password) {
             toast({
                 title: "Error",
                 description: "Please enter both credentials",
@@ -32,7 +32,7 @@ const EmployeeLogin: React.FC<EmployeeLoginProps> = ({ onBack, onLoginSuccess })
 
         setIsLoading(true);
         try {
-            const data = await authApi.login(email, password);
+            const data = await authApi.login(identifier, password);
             login(data.access_token);
             toast({
                 title: "Success",
@@ -78,8 +78,8 @@ const EmployeeLogin: React.FC<EmployeeLoginProps> = ({ onBack, onLoginSuccess })
                             <Input
                                 placeholder="Email or Employee ID"
                                 className="pl-9"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
+                                value={identifier}
+                                onChange={(e) => setIdentifier(e.target.value)}
                                 disabled={isLoading}
                             />
                         </div>

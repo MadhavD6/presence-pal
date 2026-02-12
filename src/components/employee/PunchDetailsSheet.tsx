@@ -72,7 +72,7 @@ const PunchDetailsSheet = ({ punch, isOpen, onClose, employeeName = "User" }: Pu
                     {/* Map Preview */}
                     <div className="w-full h-48 bg-muted rounded-xl overflow-hidden relative">
                         <img
-                            src="https://maps.googleapis.com/maps/api/staticmap?center=Swathi+Plaza+Hyderabad&zoom=15&size=600x300&maptype=roadmap&markers=color:red%7CSwathi+Plaza+Hyderabad&key=YOUR_API_KEY"
+                            src={`https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(punch.location)}&zoom=15&size=600x300&maptype=roadmap&markers=color:red%7C${encodeURIComponent(punch.location)}&key=${import.meta.env.VITE_GOOGLE_MAPS_KEY || ''}`}
                             alt="Map Location"
                             className="w-full h-full object-cover opacity-80"
                             onError={(e) => {

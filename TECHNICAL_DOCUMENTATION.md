@@ -1,236 +1,197 @@
-# Face Attendance System - Technical Documentation
-**Version:** 1.0.0
-**Date:** January 12, 2026
-**Status:** Alpha / Active Development
+# PresencePal Technical Architecture & Implementation Guide
+
+## 1. Executive Summary
+**PresencePal** is a high-performance, AI-powered Face Attendance System designed for real-time employee tracking. It replaces traditional biometric hardware with standard tablets/kiosks, using advanced Computer Vision to identify staff securely and accurately.
+
+The system is built to handle:
+*   **Real-time Identification**: < 1 second response time.
+*   **Offline Capability**: Works without internet, syncing when online.
+*   **Anti-Spoofing**: Prevents photo/video attacks via liveness detection.
+*   **Scalability**: Capable of handling hundreds of concurrent users via async processing.
 
 ---
 
-## 1. Table of Contents
-1. [System Overview & Architecture](#2-system-overview--architecture)
-2. [Detailed Component Breakdown](#3-detailed-component-breakdown)
-3. [End-to-End Face Recognition Process](#4-data-flow--end-to-end-face-recognition-process)
-4. [Database Schema](#5-database-schema)
-5. [Current Implementation Status](#6-current-implementation-status--gaps)
-6. [Security & Anti-Spoofing](#7-security--anti-spoofing-considerations)
-7. [Roadmap & Priorities](#8-next-development-priorities-roadmap)
-8. [Best Practices](#9-best-practices--recommendations)
+## 2. Technology Stack
+
+### **Frontend (The User Interface)**
+*   **Framework**: [React](https://react.dev/) + [Vite](https://vitejs.dev/) (Fast build tool)
+*   **Language**: TypeScript (Type safety)
+*   **Styling**: [Tailwind CSS](https://tailwindcss.com/) + Shadcn/UI (Modern, responsive components)
+*   **State Management**: React Query (Server state) + Context API (Auth state)
+*   **PWA Features**: Service Workers for offline capabilities.
+
+### **Backend (The Core Logic)**
+*   **Framework**: [FastAPI](https://fastapi.tiangolo.com/) (High-performance Python web framework)
+*   **Language**: Python 3.12+
+*   **Validation**: Pydantic (Data validation)
+*   **Concurrency**: Async/Await + ThreadPoolExecutor (for CPU-bound AI tasks)
+
+### **AI & Computer Vision (The "Brain")**
+*   **Face Recognition**: [DeepFace](https://github.com/serengil/deepface) framework.
+*   **Model**: **ArcFace** (State-of-the-art accuracy, 512-dimensional embeddings).
+*   **Vector Search**: 
+    *   **FAISS** (Facebook AI Similarity Search) for high-scale/speed (Production).
+    *   **Linear Search** (NumPy) for small-scale/fallback.
+*   **Image Processing**: OpenCV (Image decoding, resizing, preprocessing).
+*   **Liveness Detection**: Custom logic (Texture analysis, motion verification).
+
+### **Database & Storage**
+*   **Primary DB**: SQLite (with **WAL Mode** enabled for verified high concurrency). *Migration path: PostgreSQL.*
+*   **ORM**: SQLModel (SQLAlchemy + Pydantic).
+*   **Caching**: Redis (Optional/Fallback implemented for user profiles).
+*   **Vector Store**: In-memory FAISS index (persisted from DB on startup).
+
+### **Infrastructure**
+*   **External Access**: **Cloudflare Tunnel** (`cloudflared`) - Exposes local `localhost:8080` safely to the public internet securely (HTTPS) without opening router ports.
 
 ---
 
-## 2. System Overview & Architecture
-
-The Face Attendance System is a high-performance, privacy-focused biometric attendance solution designed for corporate environments. It combines a sleek, touch-free Kiosk interface with robust backend processing capable of sub-second recognition.
-
-### Tech Stack
-*   **Frontend**: React, Vite, TailwindCSS (Dark-first UI)
-*   **Backend**: Python, FastAPI
-*   **Database**: SQLite (with SQLAlchemy/SQLModel ORM)
-*   **AI/ML Engine**: DeepFace (ArcFace Model) + OpenCV
-*   **Vector Search**: FAISS (Facebook AI Similarity Search) or Linear Search (scale-dependent)
-*   **Infrastructure**: Local deployment support, Docker-ready
-
-### Architecture Diagram
+## 3. System Architecture
 
 ```mermaid
 graph TD
-    subgraph "Frontend Layer (React/Vite)"
-        Kiosk["Kiosk UI (Capture Zone)"]
-        EmpDash["Employee Dashboard (Mock)"]
-        MgrDash["Manager Dashboard (Live)"]
-        Router["App Router (Index.tsx)"]
-    end
-
-    subgraph "Backend Layer (FastAPI)"
-        API["API Gateway (Routers)"]
-        Liveness["Liveness Service (Motion/Blink)"]
-        FaceEng["DeepFace Engine (ArcFace)"]
-        Audit["Audit Service"]
-        VectorSvc["Vector Service (FAISS/Linear)"]
-    end
-
-    subgraph "Data Persistence"
-        DB[(SQLite DB)]
-        EmbedStore[("Embedding Store (BLOB)")]
-        Cache["In-Memory Cache (Redis/Local)"]
-    end
-
-    %% Flows
-    Kiosk -->|images (burst 5x)| API
-    API --> Liveness
-    Liveness -->|validated frames| FaceEng
-    FaceEng -->|512D Vector| VectorSvc
-    VectorSvc -->|Search Query| EmbedStore
-    VectorSvc -.->|High Scale| FAISS[(FAISS Index)]
+    User["User/Employee"] -->|Face Scan| Kiosk["Kiosk Frontend"]
+    Kiosk -->|HTTPS/Tunnel| Cloudflare["Cloudflare Network"]
+    Cloudflare -->|Secure Tunnel| LocalServer["Local Server / PC"]
     
-    MgrDash -->|Fetch Stats/Logs| API
-    API -->|Read| DB
+    subgraph "Backend System (FastAPI)"
+        API["API Router"]
+        Auth["Auth Service"]
+        
+        subgraph "AI Services"
+            Live["Liveness Service"]
+            Face["Face Service (Async ThreadPool)"]
+            Vector["Vector Service (FAISS Engine)"]
+        end
+        
+        DB[("SQLite/Postgres")]
+        Cache[("Redis Cache")]
+    end
     
-    Router --> Kiosk
-    Router --> EmpDash
-    Router --> MgrDash
+    LocalServer --> API
+    API --> Auth
+    API --> Live
+    API --> Face
+    Face --> Vector
+    Vector --> DB
+    Vector --> Cache
 ```
 
 ---
 
-## 3. Detailed Component Breakdown
+## 4. How It Works: The "Punch" Flow (Detailed)
 
-The frontend application is structured as a Single Page Application (SPA) with three distinct zones.
+This is the most critical operation in the system. Here is exactly what happens when a user stands in front of the kiosk:
 
-### A. Kiosk Zone (The "Face")
-Focused on speed and zero-interaction usability.
-*   **Navigation**: `ClockCaptureScreen` (Reused for In/Out).
-*   **Features**:
-    *   Real-time camera preview.
-    *   Burst mode capture (5 frames per event).
-    *   Feedbacks: Status toasts, sound effects (planned), and visual cues (glow effects).
+### **Phase 1: Capture (Frontend)**
+1.  The Kiosk camera runs continuously.
+2.  It captures a **burst of 5 frames** (images) to ensure at least one good angle.
+3.  These images are compressed and sent to the backend endpoint `/api/v1/kiosk/identify`.
 
-### B. Manager Zone (The "Brain")
-**Status: LIVE Integration**
-Fully connected to backend APIs for real-time monitoring.
-1.  **Dashboard Home**:
-    *   **Day View**: Aggregated stats (Present, Late, Absent).
-    *   **Live Feed**: Latest punches list with timestamps and duration.
-2.  **Timesheet View**:
-    *   Weekly grid visualization of staff attendance.
-    *   Auto-calculation of "Worked Hours" based on punch pairs.
-3.  **Pending Actions**:
-    *   UI placeholder for approving leave requests/regularizations.
+### **Phase 2: Validation (Backend)**
+4.  **Request Receiver**: `backend/routers/kiosk.py` receives the images.
+5.  **Rate Limiting**: Checks Redis/Memory to ensure this Kiosk isn't spamming requests (DoS protection).
+6.  **Liveness Check** (`liveness_service.py`):
+    *   Analyzes images for "blur" (is it a sharp real face?).
+    *   Checks for "texture variance" (is it a flat screen/photo or a 3D face?).
+    *   **Decision**: If spoof detected -> Reject immediately (Log as Security Event).
 
-### C. Employee Zone (The "User")
-**Status: MOCK / Prototype**
-Standalone sub-app for individual staff members.
-1.  **Dashboard**: Shift schedule (horizontal scroll) and recent punch logs.
-2.  **Timesheet**: Calendar view of monthly attendance status.
-3.  **Leave Management**: UI for applying for leave and viewing history.
-*   *Note: Currently uses static mock data and local state.*
+### **Phase 3: Recognition (The Heavy Lifting)**
+7.  **Embedding Generation** (`face_service.py`):
+    *   Since AI is CPU-heavy, the request is offloaded to a **ThreadPool**.
+    *   **DeepFace (ArcFace)** converts the face image into a **512-number vector** (a unique digital fingerprint).
+    *   *Optimization*: If the first frame has >99% confidence match, we "Early Exit" and skip processing the other 4 frames.
+8.  **Vector Search** (`vector_service.py`):
+    *   The 512D vector is compared against thousands of stored user vectors in the **FAISS Index**.
+    *   It calculates the **Cosine Similarity** score (0.0 to 1.0).
+    *   **Thresholds**:
+        *   `> 0.50`: Strong Match (Accepted).
+        *   `0.42 - 0.50`: "Rescue Match" (If multiple frames point to the same person, we accept it even if confidence is slightly lower).
+        *   `< 0.42`: Unknown User.
 
----
-
-## 4. Data Flow & End-to-End Face Recognition Process
-
-### The "5-Step" Pipeline
-1.  **Capture (Client-Side)**
-    *   User stands before Kiosk.
-    *   Camera captures a burst of **5 frames** over ~1 second.
-    *   Images are bundled into `FormData` and POSTed to `/api/v1/identify`.
-
-2.  **Liveness Verification (Server-Side)**
-    *   **Input**: 5 consecutive frames.
-    *   **Logic**: Passive Liveness Check using `liveness_service`.
-    *   **Method**: Calculates pixel variance and motion flow between frames to reject static photos (spoofing).
-    *   *Result*: If motion < threshold, request is rejected as "Spoof/Static".
-
-3.  **Feature Extraction**
-    *   **Input**: The "best" frame (usually middle frame #3).
-    *   **Engine**: `FaceService` wraps **DeepFace**.
-    *   **Model**: **ArcFace** (ResNet-100 backbone).
-    *   **Output**: A normalized **512-dimensional floating-point vector**.
-
-4.  **Vector Matching**
-    *   **Service**: `VectorService`.
-    *   **Strategy Strategy Pattern**:
-        *   **Small Tenant (<1k users)**: `LinearEngine` (Numpy dot product). Exact and fast for small sets.
-        *   **Large Tenant (>1k users)**: `FaissEngine`. Uses Facebook's FAISS library for indexed, approximate nearest-neighbor search.
-    *   **Threshold**: Cosine Similarity > **0.5**.
-
-5.  **Audit & Response**
-    *   **Success**: Returns User Object `{id, name, confidence}`.
-    *   **Failure**: Returns error code (e.g., `low_confidence`, `liveness_failed`).
-    *   **Persistence**: Async write to `AuditLog` table with timestamp, event type, and confidence score.
+### **Phase 4: Response**
+9.  **Audit Logging**: The result (Success/Failure/Spoof) is written to the `auditlog` table in the DB.
+10. **Feedback**: The API returns the User Name and ID.
+11. **Frontend**: The Kiosk displays "Welcome, [Name]" and plays a success sound.
 
 ---
 
-## 5. Database Schema
+## 5. Offline Capabilities
 
-The system uses SQLite for simplicity and portability, designed to be migrated to PostgreSQL for production.
-
-### Core Tables
-
-#### 1. `User`
-*   Identity source of truth.
-*   **Columns**: `id` (PK), `name`, `employee_id` (Unique), `role` (user/admin/manager), `created_at`.
-
-#### 2. `Embedding`
-*   Stores biometric data separated from PII (Privacy by Design).
-*   **Columns**: `id` (PK), `user_id` (FK), `vector` (BLOB - serialized numpy array), `created_at`.
-
-#### 3. `AuditLog`
-*   The "Punch" record.
-*   **Columns**: `id` (PK), `timestamp`, `user_id` (FK), `kiosk_id`, `event_type` ('in'/'out'), `confidence` (float), `thumbnail_path` (optional).
-
-#### 4. `Kiosk` (New)
-*   Device registration and authentication.
-*   **Columns**: `id`, `name`, `api_key_hash`, `location_id`.
-
-### Proposed Schema Additions (Roadmap)
-*   **`Shift`**: `id`, `name`, `start_time`, `end_time`, `grace_period_mins`.
-*   **`LeaveRequest`**: `id`, `user_id`, `type`, `start_date`, `end_date`, `status` (pending/approved/rejected), `reason`.
-*   **`PayrollConfig`**: `user_id`, `hourly_rate`, `currency`, `overtime_multiplier`.
+What if the internet cuts out?
+1.  **Detection**: The Frontend detects network failure.
+2.  **Queueing**: Punches are saved locally in the browser's **IndexedDB** (`offlineStorage.ts`).
+3.  **Sync**: When internet returns, a background service (`sync.ts`) batches these saved punches and sends/uploads them to `/api/v1/kiosk/sync`.
+4.  **Reconciliation**: The backend inserts them into the database, respecting the original timestamps.
 
 ---
 
-## 6. Current Implementation Status & Gaps
+## 6. Key Internal Modules
 
-| Module | Component | Status | Source of Truth |
-| :--- | :--- | :--- | :--- |
-| **Kiosk** | Capture UI | 🟢 Live | Camera/DeepFace |
-| **Kiosk** | Face Rec Pipeline | 🟢 Live | ArcFace/FAISS |
-| **Kiosk** | Offline Mode | 🟡 Partial | LocalStorage (queue exists, sync pending) |
-| **Manager** | Dashboard Stats | 🟢 Live | API (`/manager/stats`) |
-| **Manager** | Timesheet | 🟢 Live | API (`/manager/timesheet`) |
-| **Employee** | Dashboard | 🟡 Mock | Static JSON |
-| **Employee** | Leave | 🟡 Mock | UI Only |
-| **Core** | Payroll Logic | 🔴 Missing | None |
-| **Core** | Auth/RBAC | 🟡 Partial | Fixed Roles |
+### **`backend/services/face.py`**
+*   **Role**: wrapper for DeepFace.
+*   **Key Tech**: Uses `ThreadPoolExecutor` to make blocking AI calls "async" so the web server doesn't freeze.
+*   **Safety**: Handles "No Face Found" errors gracefully.
 
----
+### **`backend/services/vector.py`**
+*   **Role**: The search engine.
+*   **Logic**:
+    *   On startup, loads all vectors from DB into RAM.
+    *   Uses **FAISS** for O(1) or O(log n) search speed (very fast).
+    *   Falls back to **Linear Search** (numpy dot product) if FAISS fails or dataset is tiny.
+*   **Hybrid Logic**: Implements "Multi-Reference Aggregation" — uses multiple historically stored angles of a user to improve match rates.
 
-## 7. Security & Anti-Spoofing Considerations
-
-1.  **Passive Liveness**:
-    *   Basic motion-based detection is implemented to stop "phone screen" or "printed photo" attacks.
-    *   *Upgrade*: Future implementation of blink detection or depth-estimation.
-
-2.  **Data Privacy**:
-    *   **Images are Ephemeral**: Raw face images are processed in-memory and discarded. Only the math vector is saved.
-    *   **Vector Protection**: Vectors are stored as binary blobs. Reverse-engineering a face from a 512D ArcFace vector is theoretically extremely difficult.
-
-3.  **Kiosk Security**:
-    *   API requests from Kiosk require an `X-Kiosk-API-Key` header.
-    *   Kiosk registration flow binds a device ID to a location.
+### **`backend/core/logger.py.py`**
+*   **Role**: Centralized logging.
+*   **Format**: outputs **JSON** logs (e.g., `{"level": "info", "timestamp": "...", "message": "Face loaded"}`) instead of plain text. This is crucial for production monitoring/debugging.
 
 ---
 
-## 8. Next Development Priorities Roadmap
+## 7. External Connectivity (Cloudflare)
 
-### Phase 1: Employee Integration (Est. 3 Days)
-*   [ ] Connect Employee Dashboard to `GET /employee/dashboard`.
-*   [ ] Implement `POST /employee/leave` API and connect frontend form.
-*   [ ] Replace random attendance status with real query from `AuditLog`.
-
-### Phase 2: Robust Payroll & Shifts (Est. 5 Days)
-*   [ ] Implement `Shift` model to define "Late" vs "On Time".
-*   [ ] Create "Payroll Service" to calculate: `(Total Hours - Unpaid Breaks) * Rate`.
-*   [ ] Add `Overtime` calculation logic.
-
-### Phase 3: Hardening & Deployment (Est. 4 Days)
-*   [ ] **Sync Service**: Robust backend worker to process offline punches from Kiosk.
-*   [ ] **Containerization**: Dockerfile for Frontend (Nginx) and Backend (Uvicorn).
-*   [ ] **SSL/TLS**: Enforce HTTPS for camera permissions in production.
+You are using **Cloudflare Tunnel (`cloudflared`)**.
+*   **Function**: It creates a secure, encrypted outbound connection from your local machine to Cloudflare's edge network.
+*   **URL**: `https://isa-cohen-editorials-carrier.trycloudflare.com` (Example).
+*   **Security**:
+    *   You do **NOT** need to open Port 80/443 on your router (Zero Trust).
+    *   Traffic is HTTPS encrypted end-to-end.
+    *   DDoS protection is provided by Cloudflare.
 
 ---
 
-## 9. Best Practices & Recommendations
+## 8. Database Schema Overview
 
-1.  **Lighting Conditions**:
-    *   Deploy Kiosks in evenly lit areas (300-500 lux). Avoid backlighting (windows behind users).
-    
-2.  **Scalability**:
-    *   Current SQLite + FAISS setup can handle ~5,000 users comfortably.
-    *   **Next Step**: Migration to PostgreSQL + pgvector for >10k users.
-    
-3.  **Concurrency**:
-    *   Face recognition is CPU intensive. For high traffic (shift change times), consider deploying Celery workers or a separate "Inference Microservice" to keep the API responsive.
+*   **`User`**: Stores profile (Name, Employee ID, Role, Site ID).
+*   **`FaceGallery`**: Stores the raw 512D vectors (blobs) linked to users.
+*   **`AuditLog`**: The "Punch Clock" — records User ID, Time, Event (In/Out), Confidence, and Snapshot Path.
+*   **`Shift`**: Defines work hours (Start, End, Grace Period).
+*   **`Leaf/Holiday`**: HR management tables.
 
-4.  **Compliance**:
-    *   **GDPR/BIPA**: Ensure explicit consent is collected before enrollment. Add a "Delete My Data" feature for employees (Right to be Forgotten).
+## 9. Troubleshooting & Maintenance
+
+### Redis (Cache & Broker)
+The system uses Redis heavily for speed and inter-process communication.
+
+**Problem: "Redis Connection Error" or "OOM command not allowed"**
+1.  **Check Status:**
+    ```bash
+    docker stats prodify_face_redis
+    ```
+    If memory usage is > 512MB, it might be full.
+2.  **Fix:**
+    The system is configured with `allkeys-lru`, so it *should* auto-delete old keys. If it's still full, you might need to FLUSH it (Warning: Clears all cache):
+    ```bash
+    docker exec -it prodify_face_redis redis-cli FLUSHALL
+    ```
+3.  **Logs:**
+    View logs to see if it crashed:
+    ```bash
+    docker logs prodify_face_redis
+    ```
+
+**Problem: Workers out of sync (User registered but not recognized)**
+*   This means the Pub/Sub signal failed.
+*   **Fix:** Restart the backend services to force a reload from DB.
+    ```bash
+    docker-compose -f docker-compose.prod.yml restart backend
+    ```

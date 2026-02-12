@@ -10,5 +10,5 @@ class FaceGallery(SQLModel, table=True):
     is_anchor: bool = Field(default=False, description="True if this is the original registration photo")
     confidence: float = Field(default=1.0, description="Confidence score when captured")
     model_version: str = Field(default="arcface_v1", description="Embedding model version for future migrations")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.now)
 

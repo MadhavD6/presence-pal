@@ -6,12 +6,12 @@ import EmployeeRegistrationScreen from '@/components/attendance/EmployeeRegistra
 import EmployeeDashboard from '@/components/employee/EmployeeDashboard';
 import EmployeeLogin from '@/pages/EmployeeLogin';
 import ManagerDashboard from '@/components/manager/ManagerDashboard';
-import KioskRegistrationScreen from '@/components/admin/KioskRegistrationScreen';
+import KioskSetupPage from '@/pages/KioskSetupPage';
 import SuccessOverlay from '@/components/attendance/SuccessOverlay';
 import { api } from '@/services/api';
 import { toast } from 'sonner';
 
-type Screen = 'home' | 'clockIn' | 'clockOut' | 'register' | 'employee' | 'manager' | 'kioskRegister';
+type Screen = 'home' | 'clockIn' | 'clockOut' | 'register' | 'employee' | 'manager' | 'kioskSetup';
 
 const Index = () => {
   // Initialize from localStorage or default to 'home'
@@ -33,34 +33,17 @@ const Index = () => {
   const [queueCount, setQueueCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Silent Auto-Registration on Mount
+  // Check if Kiosk is set up on mount. If not, we might want to stay on home 
+  // but show a "Setup Needed" state or let the user click setup.
+  // For now, we remove the auto-registration as requested.
   useEffect(() => {
-    const checkAndRegister = async () => {
-      const key = localStorage.getItem('kiosk_api_key');
-      if (!key) {
-        console.log("No Kiosk Key found. Auto-registering...");
-        try {
-          // Generate Random ID
-          const randomSuffix = Math.random().toString(36).substring(2, 7).toUpperCase();
-          const deviceId = `AUTO-KIOSK-${randomSuffix}`;
-
-          const { api_key } = await api.registerKiosk(deviceId, "Auto-Location", "Auto-Building");
-          localStorage.setItem('kiosk_api_key', api_key);
-
-          toast.success("Device Registered Successfully", {
-            description: `ID: ${deviceId}`,
-            duration: 3000
-          });
-
-        } catch (error) {
-          console.error("Auto-registration failed:", error);
-          toast.error("Auto-registration Failed. Please check console.");
-        }
-      }
-    };
-
-    checkAndRegister();
-  }, []);
+    const key = localStorage.getItem('kiosk_api_key');
+    if (!key && currentScreen === 'home') {
+      // Optional: Redirect to setup if not configured
+      // setCurrentScreen('kioskSetup');
+      console.log("Kiosk not configured. Please navigate to /setup or click Setup Kiosk.");
+    }
+  }, [currentScreen]);
 
   // Apply dark mode class to document
   useEffect(() => {
@@ -173,8 +156,8 @@ const Index = () => {
       )}
 
       {/* Screen Router */}
-      {currentScreen === 'kioskRegister' && (
-        <KioskRegistrationScreen onSuccess={handleKioskRegistered} />
+      {currentScreen === 'kioskSetup' && (
+        <KioskSetupPage onCancel={() => setCurrentScreen('home')} />
       )}
 
       {currentScreen === 'home' && (
@@ -186,6 +169,7 @@ const Index = () => {
           onRegister={() => setCurrentScreen('register')}
           onEmployee={() => setCurrentScreen('employee')}
           onManager={() => setCurrentScreen('manager')}
+          onKioskSetup={() => setCurrentScreen('kioskSetup')}
           isOnline={isOnline}
           queueCount={queueCount}
           isSyncing={isSyncing}

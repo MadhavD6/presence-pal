@@ -19,7 +19,17 @@ kill_port 8000
 kill_port 8080
 
 echo "Starting Backend..."
-source .venv/bin/activate
+if [ -d "venv" ]; then
+    source venv/bin/activate
+elif [ -d ".venv" ]; then
+    source .venv/bin/activate
+fi
+
+echo "Starting Celery Worker..."
+celery -A backend.celery_app worker --loglevel=info &
+WORKER_PID=$!
+
+echo "Starting Uvicorn API..."
 uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 
@@ -27,15 +37,9 @@ echo "Starting Frontend..."
 npm run dev -- --host 0.0.0.0 --port 8080 &
 FRONTEND_PID=$!
 
-echo "Starting Cloudflare Tunnel..."
-cloudflared tunnel --url http://localhost:8080 > tunnel.log 2>&1 &
-TUNNEL_PID=$!
-sleep 5 # Give it a moment to generate the URL
-cat tunnel.log | grep -o "https://.*trycloudflare.com"
-
 echo "Application running!"
 echo "Backend: http://localhost:8000"
 echo "Frontend: http://localhost:8080"
 echo "API Docs: http://localhost:8000/docs"
 
-wait $BACKEND_PID $FRONTEND_PID $TUNNEL_PID
+wait $BACKEND_PID $FRONTEND_PID $WORKER_PID

@@ -9,6 +9,7 @@ import { AuthProvider } from "./context/AuthContext";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 
+
 const queryClient = new QueryClient();
 
 const App = () => {
@@ -72,10 +73,12 @@ const ManagerRoute = () => {
 
 const RegisterRoute = () => {
   const navigate = useNavigate();
+  // using alert for stability - toast caused white screen issues
   return (
     <EmployeeRegistrationScreen
-      onSubmit={() => {
-        // On success, maybe go home or stay?
+      onSubmit={(name, employeeId) => {
+        // Simple, reliable success feedback
+        window.alert(`Registration Successful!\n\nWelcome ${name}!\nYour Employee ID is: ${employeeId}`);
         navigate('/');
       }}
       onCancel={() => navigate('/')}
@@ -83,17 +86,11 @@ const RegisterRoute = () => {
   )
 }
 
-import KioskRegistrationScreen from "@/components/admin/KioskRegistrationScreen";
+import KioskSetupPage from "@/pages/KioskSetupPage";
+import { useToast } from "@/hooks/use-toast";
 
 const KioskSetupRoute = () => {
-  const navigate = useNavigate();
-  return (
-    <KioskRegistrationScreen
-      onSuccess={() => {
-        navigate('/');
-      }}
-    />
-  );
+  return <KioskSetupPage />;
 };
 
 export default App;

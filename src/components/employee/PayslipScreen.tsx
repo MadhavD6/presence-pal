@@ -1,7 +1,7 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { employeeApi } from '../../services/api';
-import { FileText, DollarSign, Calendar, Clock, AlertCircle } from 'lucide-react';
+import { FileText, DollarSign, Calendar, Clock, AlertCircle, Download } from 'lucide-react';
 
 export const PayslipScreen: React.FC = () => {
     const { data: payslips, isLoading, error } = useQuery({
@@ -38,7 +38,23 @@ export const PayslipScreen: React.FC = () => {
                                     <p className="text-2xl font-bold text-green-600 dark:text-green-400">
                                         ${slip.net_pay.toFixed(2)}
                                     </p>
-                                    <p className="text-xs text-gray-400">Net Pay</p>
+                                    <div className="flex flex-col items-end gap-1">
+                                        <p className="text-xs text-gray-400">Net Pay</p>
+                                        <button
+                                            onClick={() => {
+                                                const text = `PAYSLIP #${slip.id}\nRun ID: ${slip.run_id}\n\nEmployee: ${slip.user_name} (${slip.employee_id})\n\nEarnings:\n- Gross Pay: $${slip.gross_pay.toFixed(2)}\n- Overtime Pay: Included in Gross\n\nDeductions:\n- Total Deductions: $${slip.total_deductions.toFixed(2)}\n\nNET PAY: $${slip.net_pay.toFixed(2)}\n\nStats:\n- Total Hours: ${slip.total_hours}h\n- Overtime: ${slip.ot_hours}h\n- Late Days: ${slip.late_days}`;
+                                                const blob = new Blob([text], { type: 'text/plain' });
+                                                const url = window.URL.createObjectURL(blob);
+                                                const a = document.createElement('a');
+                                                a.href = url;
+                                                a.download = `Payslip_${slip.id}.txt`;
+                                                a.click();
+                                            }}
+                                            className="text-xs flex items-center gap-1 text-blue-500 hover:underline mt-1"
+                                        >
+                                            <Download className="w-3 h-3" /> Download
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 

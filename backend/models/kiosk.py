@@ -10,5 +10,6 @@ class Kiosk(SQLModel, table=True):
     ip_address: Optional[str] = None
     status: str = Field(default="active") # active, disabled, maintenance
     api_key_hash: str
+    site_id: Optional[int] = Field(default=None, foreign_key="site.id")
     last_heartbeat: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.now)

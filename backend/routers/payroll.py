@@ -11,7 +11,7 @@ from backend.services.payroll_service import aggregate_daily_attendance, generat
 router = APIRouter(prefix="/payroll", tags=["payroll"])
 
 @router.post("/aggregate", response_model=PayrollRun)
-async def trigger_payroll_run(
+def trigger_payroll_run(
     start_date: date,
     end_date: date,
     current_user: User = Depends(get_current_admin_user),
@@ -36,7 +36,7 @@ async def trigger_payroll_run(
     return run
 
 @router.get("/slips/me", response_model=List[Payslip])
-async def get_my_payslips(
+def get_my_payslips(
     current_user: User = Depends(get_current_active_user),
     session: Session = Depends(get_session)
 ):
@@ -51,7 +51,7 @@ async def get_my_payslips(
     return slips
 
 @router.get("/slips/me/{run_id}", response_model=Payslip)
-async def get_my_payslip_detail(
+def get_my_payslip_detail(
     run_id: int,
     current_user: User = Depends(get_current_active_user),
     session: Session = Depends(get_session)

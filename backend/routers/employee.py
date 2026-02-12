@@ -3,18 +3,19 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select, and_
 from typing import List, Optional
 from datetime import datetime, date, timedelta, time
+import calendar
 from backend.core.database import get_session
 from backend.core.security import get_current_active_user, verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
 from backend.models.user import User
 from backend.models.audit import AuditLog
-from backend.models.shift import Shift
+from backend.models.shift import Shift, EmployeeShift
 from backend.models.site import Site
 from backend.models.leave import Leave
 
 router = APIRouter(prefix="/employee", tags=["employee"])
 
 @router.post("/login")
-async def login_for_access_token(
+def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: Session = Depends(get_session)
 ):
@@ -40,7 +41,10 @@ async def login_for_access_token(
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.get("/dashboard")
-async def get_dashboard_data(
+def get_dashboard_data(
+    month: Optional[str] = Query(None, description="YYYY-MM"),
+    skip: int = Query(0, description="Pagination offset"),
+    limit: int = Query(50, le=200, description="Max 200 records"),
     current_user: User = Depends(get_current_active_user),
     session: Session = Depends(get_session)
 ):
@@ -50,10 +54,21 @@ async def get_dashboard_data(
     - Today's Punch Status (In/Out/Time)
     - Shift Info
     """
-    today = date.today()
     now = datetime.now()
+    today = date.today()
     
-    # 1. Fetch Today's Logs
+    # If month provided, use that for shift projection
+    target_date = today
+    if month:
+        try:
+             # Use 1st of requested month
+             dt = datetime.strptime(month, "%Y-%m").date()
+             target_date = dt
+        except ValueError:
+             pass # Fallback to today
+             
+    # 1. Fetch Today's Logs (Always for "Today's Status", regardless of selected month view)
+    # The dashboard top card is "Today". The Shift Schedule is "This Month".
     start_of_day = datetime.combine(today, time.min)
     end_of_day = datetime.combine(today, time.max)
     
@@ -63,6 +78,8 @@ async def get_dashboard_data(
         .where(AuditLog.timestamp >= start_of_day)
         .where(AuditLog.timestamp <= end_of_day)
         .order_by(AuditLog.timestamp.desc()) # Newest first for "Recent Activity"
+        .offset(skip)
+        .limit(limit)
     ).all()
     
     # Process Logs for Recent Activity
@@ -94,19 +111,34 @@ async def get_dashboard_data(
             first_in = first_in_dt.strftime("%I:%M %p")
             status = "Present"
             
-            # Check Late Status (if shift exists)
-            if current_user.shift_id:
+            # Check Late Status (query historical shift for today)
+            # 1. Try to find applicable shift from EmployeeShift table
+            shift = None
+            employee_shift = session.exec(
+                select(EmployeeShift)
+                .where(EmployeeShift.user_id == current_user.id)
+                .where(EmployeeShift.start_date <= today)
+                .where(
+                    (EmployeeShift.end_date == None) | (EmployeeShift.end_date >= today)
+                )
+            ).first()
+            
+            if employee_shift:
+                shift = session.get(Shift, employee_shift.shift_id)
+            elif current_user.shift_id:
+                # Fallback to cached
                 shift = session.get(Shift, current_user.shift_id)
-                if shift:
-                    # Combine today date with shift start time
-                    shift_start_dt = datetime.combine(today, shift.start_time)
-                    # 15 min grace period
-                    grace_time = shift_start_dt + timedelta(minutes=15)
-                    
-                    if first_in_dt > grace_time:
-                        is_late = True
-                        diff = first_in_dt - shift_start_dt
-                        late_minutes = int(diff.total_seconds() / 60)
+                
+            if shift:
+                # Combine today date with shift start time
+                shift_start_dt = datetime.combine(today, shift.start_time)
+                # Use shift's grace period
+                grace_time = shift_start_dt + timedelta(minutes=shift.grace_period_mins)
+                
+                if first_in_dt > grace_time:
+                    is_late = True
+                    diff = first_in_dt - shift_start_dt
+                    late_minutes = int(diff.total_seconds() / 60)
 
         # Find Last Out (or check current status)
         last_log = logs_asc[-1]
@@ -140,11 +172,14 @@ async def get_dashboard_data(
     if current_user.shift_id:
         shift = session.get(Shift, current_user.shift_id)
         if shift:
-            # Generate for current week (Mon-Sun) or just next 7 days? 
-            # Frontend shows "My Shift Schedule" mostly as upcoming cards.
-            # Let's show Today + next 6 days.
-            for i in range(7):
-                d = today + timedelta(days=i)
+
+            # Generate for the FULL requested month
+            # Calculate number of days in target month
+            num_days = calendar.monthrange(target_date.year, target_date.month)[1]
+            start_date_month = date(target_date.year, target_date.month, 1)
+            
+            for i in range(num_days):
+                d = start_date_month + timedelta(days=i)
                 # Simple logic: Work all days except Sunday (WO)
                 # You might want a Roster table later.
                 is_wo = (d.weekday() == 6) # Sunday
@@ -188,7 +223,7 @@ async def get_dashboard_data(
     }
 
 @router.get("/timesheet")
-async def get_my_timesheet(
+def get_my_timesheet(
     month: str = Query(..., description="YYYY-MM"), 
     current_user: User = Depends(get_current_active_user),
     session: Session = Depends(get_session)
@@ -280,7 +315,7 @@ async def get_my_timesheet(
     return results
 
 @router.get("/me/timesheet/day")
-async def get_daily_timesheet(
+def get_daily_timesheet(
     date_str: str = Query(..., alias="date", description="YYYY-MM-DD"),
     current_user: User = Depends(get_current_active_user),
     session: Session = Depends(get_session)
@@ -418,7 +453,7 @@ from backend.models.leave import Leave
 # ... existing code ...
 
 @router.post("/me/leaves")
-async def apply_leave(
+def apply_leave(
     leave_type: str = Form(...),
     start_date: str = Form(...),
     end_date: str = Form(...),
@@ -432,6 +467,26 @@ async def apply_leave(
         e_date = datetime.strptime(end_date, "%Y-%m-%d").date()
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format")
+
+    # Check for overlapping leaves (not rejected)
+    overlapping = session.exec(
+        select(Leave)
+        .where(Leave.user_id == current_user.id)
+        .where(Leave.status != "Rejected")
+        .where(
+            # Date ranges overlap if: start1 <= end2 AND end1 >= start2
+            and_(
+                Leave.start_date <= e_date,
+                Leave.end_date >= s_date
+            )
+        )
+    ).first()
+    
+    if overlapping:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Overlapping leave exists ({overlapping.start_date} to {overlapping.end_date})"
+        )
 
     file_path = None
     if file:
@@ -454,13 +509,126 @@ async def apply_leave(
     return {"status": "submitted", "id": leave.id}
 
 @router.get("/me/leaves")
-async def get_my_leaves(
+def get_my_leaves(
+    from_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    to_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
     current_user: User = Depends(get_current_active_user),
     session: Session = Depends(get_session)
 ):
-    leaves = session.exec(
-        select(Leave)
-        .where(Leave.user_id == current_user.id)
-        .order_by(Leave.start_date.desc())
-    ).all()
+    query = select(Leave).where(Leave.user_id == current_user.id)
+
+    if from_date:
+        try:
+            fd = datetime.strptime(from_date, "%Y-%m-%d").date()
+            query = query.where(Leave.start_date >= fd)
+        except ValueError:
+            pass
+            
+    if to_date:
+        try:
+            td = datetime.strptime(to_date, "%Y-%m-%d").date()
+            query = query.where(Leave.end_date <= td)
+        except ValueError:
+            pass
+
+    query = query.order_by(Leave.start_date.desc())
+    leaves = session.exec(query).all()
     return leaves
+
+from backend.models.correction import AttendanceCorrection
+
+@router.post("/me/corrections")
+def apply_correction(
+    original_date: str = Form(...),
+    corrected_in: Optional[str] = Form(None), # HH:MM
+    corrected_out: Optional[str] = Form(None), # HH:MM
+    reason: str = Form(...),
+    file: Optional[UploadFile] = File(None),
+    current_user: User = Depends(get_current_active_user),
+    session: Session = Depends(get_session)
+):
+    try:
+        try:
+            o_date = datetime.strptime(original_date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format")
+
+        c_in = None
+        c_out = None
+        
+        if corrected_in:
+            try:
+                # Combine with original date
+                t_in = datetime.strptime(corrected_in, "%H:%M").time()
+                c_in = datetime.combine(o_date, t_in)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid time format")
+
+        if corrected_out:
+            try:
+                t_out = datetime.strptime(corrected_out, "%H:%M").time()
+                c_out = datetime.combine(o_date, t_out)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid time format")
+
+        file_path = None
+        if file:
+            # Mock save - in real app, save to disk/s3
+            file_path = f"uploads/{file.filename}"
+
+        correction = AttendanceCorrection(
+            user_id=current_user.id,
+            original_date=o_date,
+            corrected_in=c_in,
+            corrected_out=c_out,
+            reason=reason,
+            attachment=file_path,
+            status="Pending"
+        )
+        session.add(correction)
+        session.commit()
+        session.refresh(correction)
+        return {"status": "submitted", "id": correction.id}
+    except Exception as e:
+        import traceback
+        with open("error.log", "w") as f:
+            f.write(traceback.format_exc())
+        raise e
+
+@router.get("/me/corrections")
+def get_my_corrections(
+    from_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    to_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    current_user: User = Depends(get_current_active_user),
+    session: Session = Depends(get_session)
+):
+    query = select(AttendanceCorrection).where(AttendanceCorrection.user_id == current_user.id)
+    
+    if from_date:
+        try:
+            fd = datetime.strptime(from_date, "%Y-%m-%d").date()
+            query = query.where(AttendanceCorrection.original_date >= fd)
+        except ValueError:
+            pass # Ignore invalid date
+    else:
+        # Default fallback to 60 days only if no filter provided?
+        # Or remove limit if user wants "all" via empty filter?
+        # Let's keep a sane default if absolutely no params, but allow full range if queried.
+        # Ideally, UI sends dates.
+        pass 
+        
+    if to_date:
+        try:
+            td = datetime.strptime(to_date, "%Y-%m-%d").date()
+            query = query.where(AttendanceCorrection.original_date <= td)
+        except ValueError:
+            pass
+
+    # If no filters, maybe limit to 60 days to prevent overload?
+    if not from_date and not to_date:
+         start_dt = date.today() - timedelta(days=60)
+         query = query.where(AttendanceCorrection.original_date >= start_dt)
+
+    query = query.order_by(AttendanceCorrection.created_at.desc())
+    corrections = session.exec(query).all()
+    return corrections

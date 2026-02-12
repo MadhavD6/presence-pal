@@ -1,0 +1,39 @@
+# Pinned versions for production stability (Python 3.10)
+# Last updated: 2026-02-09
+
+# --- Core Framework ---
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+python-multipart==0.0.9
+
+# --- Database & ORM ---
+sqlmodel==0.0.16
+pydantic-settings==2.2.1
+aiosqlite==0.20.0
+asyncmy==0.2.9
+pymysql==1.1.0
+greenlet==3.0.3
+
+# --- Authentication ---
+pyjwt==2.8.0
+passlib[bcrypt]==1.7.4
+
+# --- HTTP & Utilities ---
+requests==2.31.0
+Pillow==10.2.0
+python-dotenv==1.0.1
+
+# --- AI / ML ---
+numpy==1.26.4
+opencv-python-headless==4.9.0.80
+deepface==0.0.89
+tf-keras>=2.15.0
+faiss-cpu>=1.7.4
+scikit-image==0.22.0
+
+# --- AWS ---
+boto3==1.34.49
+
+# --- Logging & Monitoring ---
+structlog==24.1.0
+prometheus-fastapi-instrumentator==6.1.0

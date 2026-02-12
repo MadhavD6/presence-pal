@@ -11,14 +11,14 @@ from backend.services.payroll_service import aggregate_daily_attendance
 router = APIRouter(prefix="/manager/holidays", tags=["manager-holidays"])
 
 @router.get("/", response_model=List[Holiday])
-async def get_holidays(
+def get_holidays(
     current_user: User = Depends(get_current_manager_user),
     session: Session = Depends(get_session)
 ):
     return session.exec(select(Holiday).order_by(Holiday.date.desc())).all()
 
 @router.post("/", response_model=Holiday)
-async def create_holiday(
+def create_holiday(
     holiday: Holiday,
     current_user: User = Depends(get_current_manager_user),
     session: Session = Depends(get_session)
@@ -42,7 +42,7 @@ async def create_holiday(
     return holiday
 
 @router.delete("/{holiday_id}")
-async def delete_holiday(
+def delete_holiday(
     holiday_id: int,
     current_user: User = Depends(get_current_manager_user),
     session: Session = Depends(get_session)

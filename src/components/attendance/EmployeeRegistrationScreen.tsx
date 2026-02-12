@@ -9,7 +9,7 @@ import { api } from '@/services/api';
 import { useToast } from '@/hooks/use-toast';
 
 interface EmployeeRegistrationScreenProps {
-  onSubmit: (name?: string) => void;
+  onSubmit: (name?: string, employeeId?: string) => void;
   onCancel: () => void;
 }
 
@@ -40,6 +40,7 @@ const EmployeeRegistrationScreen = ({
   };
 
   const handleCapturePhoto = async () => {
+    // ... capture logic ...
     console.log("Registration Screen: Capture Clicked (Burst Mode)");
     if (!cameraRef.current) return;
 
@@ -53,25 +54,6 @@ const EmployeeRegistrationScreen = ({
     for (let i = 0; i < 5; i++) {
       // Trigger capture
       cameraRef.current.capture();
-
-      // Wait bit for camera to process/update ref or just spacing
-      // Since `capture` in CameraPreview calls `onCapture` prop, we need to handle that.
-      // Wait, CameraPreview calls `onImageCaptured` directly.
-      // We need `onImageCaptured` to collect them? 
-      // Or we can modify CameraPreview to return blob?
-      // Usually `capture()` triggers the callback.
-
-      // Hack: We can't await `capture()` callback easily without promisifying.
-      // For now, let's assume `capture()` is fast enough and we space them out.
-      // But `onImageCaptured` sets State. State updates are async/batched.
-
-      // Better approach: Since we can't easily sync with the child callback loop here without refactoring CameraPreview significantly,
-      // We can just rely on the user clicking "Capture".
-      // BUT user asked for "Burst of 5".
-
-      // Let's rely on the `cameraRef` exposing `getScreenshot` if possible?
-      // Looking at `CameraPreview` usage in `FaceRegistration`, it passes `onCapture`.
-      // If I call `capture()` 5 times rapidly, `onCapture` will be called 5 times.
       await new Promise(r => setTimeout(r, 150)); // 150ms delay
     }
   };
@@ -80,9 +62,6 @@ const EmployeeRegistrationScreen = ({
     // Append to list
     setCapturedBlobs(prev => {
       const newBlobs = [...prev, blob];
-      // If we have 5, we are done?
-      // Or just keep adding. 
-      // Let's use the LAST one for display.
       setPhotoBlob(blob);
       setPhotoCaptured(true);
       return newBlobs.slice(-5); // Keep last 5 just in case
@@ -112,8 +91,9 @@ const EmployeeRegistrationScreen = ({
         data.append('files', blob, `enroll_${idx}.jpg`);
       });
 
-      await api.enroll(data);
-      onSubmit(formData.fullName);
+      const response = await api.enroll(data);
+      console.log("Enrollment success:", response);
+      onSubmit(formData.fullName, response.employee_id);
     } catch (err: any) {
       console.error("Enrollment failed", err);
       toast({
@@ -127,7 +107,7 @@ const EmployeeRegistrationScreen = ({
   };
 
   // Step completion checks
-  const isStep1Complete = Boolean(formData.fullName && formData.employeeId && formData.password && formData.password.length >= 6);
+  const isStep1Complete = Boolean(formData.fullName && formData.password && formData.password.length >= 6);
   const isStep2Complete = Boolean(formData.department && formData.location);
   const isStep3Complete = photoCaptured;
   const isFormValid = isStep1Complete && isStep2Complete && isStep3Complete;
@@ -219,21 +199,14 @@ const EmployeeRegistrationScreen = ({
                   />
                   <FieldIndicator isComplete={Boolean(formData.fullName)} />
                 </div>
+                <FieldError show={!formData.fullName} message="Full Name is required" />
               </div>
+
               <div className="space-y-2">
-                <Label htmlFor="employeeId">Employee ID *</Label>
-                <div className="relative">
-                  <BadgeCheck className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                  <Input
-                    id="employeeId"
-                    placeholder="Enter your employee ID"
-                    value={formData.employeeId}
-                    onChange={(e) => handleInputChange('employeeId', e.target.value)}
-                    className="h-12 pl-10 pr-10 focus-ring"
-                  />
-                  <FieldIndicator isComplete={Boolean(formData.employeeId)} />
-                </div>
+                <Label htmlFor="employeeId">Employee ID</Label>
+                {/* ... existing employeeId code ... */}
               </div>
+
               <div className="space-y-2">
                 <Label htmlFor="password">Password *</Label>
                 <div className="relative">
@@ -247,7 +220,8 @@ const EmployeeRegistrationScreen = ({
                   />
                   <FieldIndicator isComplete={Boolean(formData.password && formData.password.length >= 6)} />
                 </div>
-
+                <FieldError show={!formData.password} message="Password is required" />
+                <FieldError show={Boolean(formData.password && formData.password.length < 6)} message="Password must be at least 6 characters" />
               </div>
             </CardContent>
           </Card>
@@ -280,6 +254,7 @@ const EmployeeRegistrationScreen = ({
                   />
                   <FieldIndicator isComplete={Boolean(formData.department)} />
                 </div>
+                <FieldError show={!formData.department} message="Department is required" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="location">Location *</Label>
@@ -294,6 +269,7 @@ const EmployeeRegistrationScreen = ({
                   />
                   <FieldIndicator isComplete={Boolean(formData.location)} />
                 </div>
+                <FieldError show={!formData.location} message="Location is required" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="mobileNumber">Mobile Number (Optional)</Label>
@@ -360,6 +336,7 @@ const EmployeeRegistrationScreen = ({
                 <Camera className="w-5 h-5 mr-2" />
                 {photoCaptured ? 'Retake Photo' : 'Capture Photo'}
               </Button>
+              <FieldError show={!photoCaptured} message="Face photo is required" />
             </CardContent>
           </Card>
 
@@ -381,10 +358,16 @@ const EmployeeRegistrationScreen = ({
               Cancel
             </Button>
           </div>
+          {/* Validation Help Text removed in favor of field-level hints */}
         </form>
       </main>
     </div>
   );
 };
+
+// Helper for inline validation
+const FieldError = ({ show, message }: { show: boolean; message: string }) => (
+  show ? <p className="text-xs text-destructive font-medium mt-1 animate-pulse">{message}</p> : null
+);
 
 export default EmployeeRegistrationScreen;

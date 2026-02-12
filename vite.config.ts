@@ -13,7 +13,7 @@ export default defineConfig(({ mode }) => ({
       // clientPort: 443, // Use HTTPS port for HMR over tunnel (Enable if using Cloudflare only)
     },
     watch: {
-      ignored: ["**/.venv/**", "**/backend/**", "**/.git/**"],
+      ignored: ["**/venv/**", "**/.venv/**", "**/node_modules/**", "**/thumbnails/**", "**/backend/**", "**/.git/**"],
     },
     proxy: {
       "/api": {

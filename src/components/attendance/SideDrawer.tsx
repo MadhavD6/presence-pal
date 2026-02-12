@@ -4,7 +4,7 @@ import { X, Home, UserPlus, HelpCircle, Sun, Moon, User, ShieldCheck } from 'luc
 interface SideDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  onNavigate: (screen: 'home' | 'register' | 'employee' | 'manager') => void;
+  onNavigate: (screen: 'home' | 'register' | 'employee' | 'manager' | 'kioskSetup') => void;
   isDark: boolean;
   onToggleTheme: () => void;
 }
@@ -43,6 +43,7 @@ const SideDrawer = ({ isOpen, onClose, onNavigate, isDark, onToggleTheme }: Side
     { icon: UserPlus, label: 'Register', action: () => { onNavigate('register'); onClose(); } },
     { icon: User, label: 'Employee Zone', action: () => { onNavigate('employee'); onClose(); } },
     { icon: ShieldCheck, label: 'Manager Dashboard', action: () => { onNavigate('manager'); onClose(); } },
+    { icon: ShieldCheck, label: 'Setup Kiosk', action: () => { onNavigate('kioskSetup'); onClose(); } },
     { icon: HelpCircle, label: 'Help', action: () => { onClose(); } },
   ];
 

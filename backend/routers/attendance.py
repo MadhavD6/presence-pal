@@ -16,7 +16,7 @@ from backend.core.security import get_current_active_user
 router = APIRouter()
 
 @router.post("/attendance/punch")
-async def punch(
+def punch(
     file: UploadFile = File(...),
     event_type: str = Form(..., description="'in' or 'out'"),
     latitude: float = Form(...),
@@ -47,7 +47,7 @@ async def punch(
     
     if last_log:
         from datetime import datetime
-        time_diff = datetime.utcnow() - last_log.timestamp
+        time_diff = datetime.now() - last_log.timestamp
         if time_diff.total_seconds() < 120: # 2 minutes
             raise HTTPException(status_code=429, detail="Duplicate punch detected. Please wait 2 minutes.")
 
@@ -74,7 +74,7 @@ async def punch(
          # Or better, check for specific test header?
          pass
 
-    contents = await file.read()
+    contents = file.file.read()
     # DEV HACK: If file is tiny (dummy), skip liveness
     if len(contents) < 100:
         print("Skipping liveness for dummy test file")

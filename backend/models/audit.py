@@ -5,11 +5,12 @@ from sqlalchemy import Column, JSON
 
 class AuditLog(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    timestamp: datetime = Field(default_factory=datetime.now)
-    user_id: Optional[int] = Field(default=None, foreign_key="user.id")
-    kiosk_id: Optional[int] = Field(default=None)
+    timestamp: datetime = Field(default_factory=datetime.now, index=True)  # Index for date range queries
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)  # Index for user filtering
+    kiosk_id: Optional[int] = Field(default=None, index=True)  # Index for kiosk filtering
     event_type: str = Field(default="unknown") # "in" or "out"
     identified_name: Optional[str] = None
+    employee_id: Optional[str] = Field(default=None, description="Employee ID e.g. EMP-123")
     confidence: float
     thumbnail_path: Optional[str] = None # Path to ephemeral low-res image
     metadata_info: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))

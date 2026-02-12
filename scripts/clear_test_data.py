@@ -1,3 +1,16 @@
+import sys
+import os
+
+# ============================================================
+# PRODUCTION SAFETY GUARD
+# This script contains DESTRUCTIVE operations (DELETE).
+# It will NOT run unless ALLOW_DESTRUCTIVE_SCRIPTS=true is set.
+# ============================================================
+if os.getenv("ALLOW_DESTRUCTIVE_SCRIPTS", "false").lower() != "true":
+    print("❌ BLOCKED: This script clears test data.")
+    print("   To run, set environment variable: ALLOW_DESTRUCTIVE_SCRIPTS=true")
+    sys.exit(1)
+
 from sqlmodel import Session, select, delete
 from backend.core.database import engine
 # Models to Clear

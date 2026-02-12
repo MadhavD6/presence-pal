@@ -4,6 +4,16 @@ import os
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# ============================================================
+# PRODUCTION SAFETY GUARD
+# This script contains DESTRUCTIVE operations (DELETE FROM).
+# It will NOT run unless ALLOW_DESTRUCTIVE_SCRIPTS=true is set.
+# ============================================================
+if os.getenv("ALLOW_DESTRUCTIVE_SCRIPTS", "false").lower() != "true":
+    print("❌ BLOCKED: This script contains destructive operations.")
+    print("   To run, set environment variable: ALLOW_DESTRUCTIVE_SCRIPTS=true")
+    sys.exit(1)
+
 from sqlmodel import Session, text
 from backend.core.database import engine
 

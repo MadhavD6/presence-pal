@@ -94,7 +94,7 @@ export const ManagerApprovalsScreen = () => {
                                     <div className="flex flex-col md:flex-row justify-between gap-4">
                                         <div className="flex-1 space-y-2">
                                             <div className="flex items-center gap-2">
-                                                <h3 className="font-semibold text-lg">{leave.user_name}</h3>
+                                                <h3 className="font-semibold text-lg">{leave.name}</h3>
                                                 <Badge variant="outline" className="text-blue-600 bg-blue-50 border-blue-200">
                                                     {leave.leave_type}
                                                 </Badge>
@@ -102,7 +102,7 @@ export const ManagerApprovalsScreen = () => {
                                             <div className="flex items-center gap-4 text-sm text-muted-foreground">
                                                 <div className="flex items-center gap-1">
                                                     <Clock className="w-4 h-4" />
-                                                    <span>Applied on {format(new Date(leave.created_at), 'dd MMM yyyy')}</span>
+                                                    <span>Applied on {leave.created_at ? format(new Date(leave.created_at), 'dd MMM yyyy') : 'Unknown'}</span>
                                                 </div>
                                             </div>
                                             <div className="p-3 bg-muted/30 rounded-lg text-sm">
@@ -148,22 +148,26 @@ export const ManagerApprovalsScreen = () => {
                                     <div className="flex flex-col md:flex-row justify-between gap-4">
                                         <div className="flex-1 space-y-2">
                                             <div className="flex items-center gap-2">
-                                                <h3 className="font-semibold text-lg">{req.user_name}</h3>
+                                                <h3 className="font-semibold text-lg">{req.name}</h3>
                                                 <Badge variant="outline" className="text-amber-600 bg-amber-50 border-amber-200">
                                                     Time Correction
                                                 </Badge>
                                             </div>
                                             <div className="text-sm font-medium">
-                                                For Date: {format(new Date(req.date_of_correction), 'EEEE, dd MMM yyyy')}
+                                                For Date: {format(new Date(req.date), 'EEEE, dd MMM yyyy')}
                                             </div>
                                             <div className="grid grid-cols-2 gap-4 max-w-sm mt-2">
                                                 <div className="p-2 border rounded bg-background text-center">
                                                     <div className="text-xs text-muted-foreground uppercase tracking-wider">Requested In</div>
-                                                    <div className="font-mono font-bold text-lg text-emerald-600">{req.new_in_time || '--:--'}</div>
+                                                    <div className="font-mono font-bold text-lg text-emerald-600">
+                                                        {req.corrected_in ? format(new Date(req.corrected_in), 'HH:mm') : '--:--'}
+                                                    </div>
                                                 </div>
                                                 <div className="p-2 border rounded bg-background text-center">
                                                     <div className="text-xs text-muted-foreground uppercase tracking-wider">Requested Out</div>
-                                                    <div className="font-mono font-bold text-lg text-rose-600">{req.new_out_time || '--:--'}</div>
+                                                    <div className="font-mono font-bold text-lg text-rose-600">
+                                                        {req.corrected_out ? format(new Date(req.corrected_out), 'HH:mm') : '--:--'}
+                                                    </div>
                                                 </div>
                                             </div>
                                             <p className="text-sm text-muted-foreground italic mt-2">"{req.reason}"</p>
